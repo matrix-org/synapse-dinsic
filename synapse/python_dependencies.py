@@ -84,7 +84,14 @@ CONDITIONAL_REQUIREMENTS = {
     "matrix-synapse-ldap3": ["matrix-synapse-ldap3>=0.1"],
 
     # we use execute_batch, which arrived in psycopg 2.7.
-    "postgres": ["psycopg2>=2.7"],
+    "postgres": [
+        "psycopg2>=2.7",
+
+        # psycopg2 requires tabulate, which 0.8.4 version has an issue that means it can't
+        # be installed (see https://github.com/astanin/python-tabulate/issues/4). While
+        # waiting for a fix, pin the dependency on 0.8.3.
+        "tabulate==0.8.3",
+    ],
 
     # ConsentResource uses select_autoescape, which arrived in jinja 2.9
     "resources.consent": ["Jinja2>=2.9"],
