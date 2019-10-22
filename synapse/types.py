@@ -16,6 +16,8 @@ import re
 import string
 from collections import namedtuple
 
+from six.moves import filter
+
 import attr
 
 from synapse.api.errors import SynapseError
@@ -229,6 +231,19 @@ def contains_invalid_mxid_characters(localpart):
         bool: True if there are any naughty characters
     """
     return any(c not in mxid_localpart_allowed_characters for c in localpart)
+
+
+def strip_invalid_mxid_characters(localpart):
+    """Removes any invalid characters from an mxid
+
+    Args:
+        localpart (basestring): the localpart to be stripped
+
+    Returns:
+        localpart (basestring): the localpart having been stripped
+    """
+    filtered = filter(lambda c: c in mxid_localpart_allowed_characters, localpart)
+    return "".join(filtered)
 
 
 UPPER_CASE_PATTERN = re.compile(b"[A-Z_]")

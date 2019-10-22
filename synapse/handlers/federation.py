@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 # Copyright 2014-2016 OpenMarket Ltd
-# Copyright 2018 New Vector Ltd
+# Copyright 2017-2018 New Vector Ltd
+# Copyright 2019 The Matrix.org Foundation C.I.C.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -33,6 +34,7 @@ from synapse.api.constants import EventTypes, Membership, RejectedReason
 from synapse.api.errors import (
     AuthError,
     CodeMessageException,
+    Codes,
     FederationDeniedError,
     FederationError,
     RequestSendFailed,
@@ -126,6 +128,8 @@ class FederationHandler(BaseHandler):
         # When joining a room we need to queue any events for that room up
         self.room_queues = {}
         self._room_pdu_linearizer = Linearizer("fed_room_pdu")
+
+        self.third_party_event_rules = hs.get_third_party_event_rules()
 
     @defer.inlineCallbacks
     def on_receive_pdu(
@@ -1258,6 +1262,15 @@ class FederationHandler(BaseHandler):
             logger.warn("Failed to create join %r because %s", event, e)
             raise e
 
+        event_allowed = yield self.third_party_event_rules.check_event_allowed(
+            event, context,
+        )
+        if not event_allowed:
+            logger.info("Creation of join %s forbidden by third-party rules", event)
+            raise SynapseError(
+                403, "This event is not allowed in this context", Codes.FORBIDDEN,
+            )
+
         # The remote hasn't signed it yet, obviously. We'll do the full checks
         # when we get the event back in `on_send_join_request`
         yield self.auth.check_from_context(
@@ -1300,6 +1313,15 @@ class FederationHandler(BaseHandler):
             origin, event
         )
 
+        event_allowed = yield self.third_party_event_rules.check_event_allowed(
+            event, context,
+        )
+        if not event_allowed:
+            logger.info("Sending of join %s forbidden by third-party rules", event)
+            raise SynapseError(
+                403, "This event is not allowed in this context", Codes.FORBIDDEN,
+            )
+
         logger.debug(
             "on_send_join_request: After _handle_new_event: %s, sigs: %s",
             event.event_id,
@@ -1341,8 +1363,12 @@ class FederationHandler(BaseHandler):
         if self.hs.config.block_non_admin_invites:
             raise SynapseError(403, "This server does not accept room invites")
 
+        is_published = yield self.store.is_room_published(event.room_id)
+
         if not self.spam_checker.user_may_invite(
-            event.sender, event.state_key, event.room_id,
+            event.sender, event.state_key, None,
+            room_id=event.room_id, new_room=False,
+            published_room=is_published,
         ):
             raise SynapseError(
                 403, "This user is not permitted to send invites to this server/user"
@@ -1458,6 +1484,15 @@ class FederationHandler(BaseHandler):
             builder=builder,
         )
 
+        event_allowed = yield self.third_party_event_rules.check_event_allowed(
+            event, context,
+        )
+        if not event_allowed:
+            logger.warning("Creation of leave %s forbidden by third-party rules", event)
+            raise SynapseError(
+                403, "This event is not allowed in this context", Codes.FORBIDDEN,
+            )
+
         try:
             # The remote hasn't signed it yet, obviously. We'll do the full checks
             # when we get the event back in `on_send_leave_request`
@@ -1484,9 +1519,18 @@ class FederationHandler(BaseHandler):
 
         event.internal_metadata.outlier = False
 
-        yield self._handle_new_event(
+        context = yield self._handle_new_event(
             origin, event
         )
+
+        event_allowed = yield self.third_party_event_rules.check_event_allowed(
+            event, context,
+        )
+        if not event_allowed:
+            logger.info("Sending of leave %s forbidden by third-party rules", event)
+            raise SynapseError(
+                403, "This event is not allowed in this context", Codes.FORBIDDEN,
+            )
 
         logger.debug(
             "on_send_leave_request: After _handle_new_event: %s, sigs: %s",
@@ -2550,11 +2594,23 @@ class FederationHandler(BaseHandler):
                 builder=builder
             )
 
+            event_allowed = yield self.third_party_event_rules.check_event_allowed(
+                event, context,
+            )
+            if not event_allowed:
+                logger.info(
+                    "Creation of threepid invite %s forbidden by third-party rules",
+                    event,
+                )
+                raise SynapseError(
+                    403, "This event is not allowed in this context", Codes.FORBIDDEN,
+                )
+
             event, context = yield self.add_display_name_to_third_party_invite(
                 room_version, event_dict, event, context
             )
 
-            EventValidator().validate_new(event)
+            EventValidator().validate_new(event, self.config)
 
             # We need to tell the transaction queue to send this out, even
             # though the sender isn't a local user.
@@ -2598,12 +2654,24 @@ class FederationHandler(BaseHandler):
             builder=builder,
         )
 
+        event_allowed = yield self.third_party_event_rules.check_event_allowed(
+            event, context,
+        )
+        if not event_allowed:
+            logger.warning(
+                "Exchange of threepid invite %s forbidden by third-party rules",
+                event,
+            )
+            raise SynapseError(
+                403, "This event is not allowed in this context", Codes.FORBIDDEN,
+            )
+
         event, context = yield self.add_display_name_to_third_party_invite(
             room_version, event_dict, event, context
         )
 
         try:
-            self.auth.check_from_context(room_version, event, context)
+            yield self.auth.check_from_context(room_version, event, context)
         except AuthError as e:
             logger.warn("Denying third party invite %r because %s", event, e)
             raise e
@@ -2612,12 +2680,6 @@ class FederationHandler(BaseHandler):
         # We need to tell the transaction queue to send this out, even
         # though the sender isn't a local user.
         event.internal_metadata.send_on_behalf_of = get_domain_from_id(event.sender)
-
-        # XXX we send the invite here, but send_membership_event also sends it,
-        # so we end up making two requests. I think this is redundant.
-        returned_invite = yield self.send_invite(origin, event)
-        # TODO: Make sure the signatures actually are correct.
-        event.signatures.update(returned_invite.signatures)
 
         member_handler = self.hs.get_room_member_handler()
         yield member_handler.send_membership_event(None, event, context)
@@ -2637,7 +2699,12 @@ class FederationHandler(BaseHandler):
                 original_invite_id, allow_none=True
             )
         if original_invite:
-            display_name = original_invite.content["display_name"]
+            # If the m.room.third_party_invite event's content is empty, it means the
+            # invite has been revoked. In this case, we don't have to raise an error here
+            # because the auth check will fail on the invite (because it's not able to
+            # fetch public keys from the m.room.third_party_invite event's content, which
+            # is empty).
+            display_name = original_invite.content.get("display_name")
             event_dict["content"]["third_party_invite"]["display_name"] = display_name
         else:
             logger.info(
@@ -2653,7 +2720,7 @@ class FederationHandler(BaseHandler):
         event, context = yield self.event_creation_handler.create_new_client_event(
             builder=builder,
         )
-        EventValidator().validate_new(event)
+        EventValidator().validate_new(event, self.config)
         defer.returnValue((event, context))
 
     @defer.inlineCallbacks

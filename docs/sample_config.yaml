@@ -77,11 +77,15 @@ pid_file: DATADIR/homeserver.pid
 #
 #require_auth_for_profile_requests: true
 
-# If set to 'true', requires authentication to access the server's
-# public rooms directory through the client API, and forbids any other
-# homeserver to fetch it via federation. Defaults to 'false'.
+# If set to 'false', requires authentication to access the server's public rooms
+# directory through the client API. Defaults to 'true'.
 #
-#restrict_public_rooms_to_local_users: true
+#allow_public_rooms_without_auth: false
+
+# If set to 'false', forbids any other homeserver to fetch the server's public
+# rooms directory via federation. Defaults to 'true'.
+#
+#allow_public_rooms_over_federation: false
 
 # The default room version for newly created rooms.
 #
@@ -307,6 +311,74 @@ listeners:
 # Defaults to 'true'.
 #
 #allow_per_room_profiles: false
+
+# Whether to show the users on this homeserver in the user directory. Defaults to
+# 'true'.
+#
+#show_users_in_user_directory: false
+
+# Message retention policy at the server level.
+#
+# Room admins and mods can define a retention period for their rooms using the
+# 'm.room.retention' state event, and server admins can cap this period by setting
+# the 'allowed_lifetime_min' and 'allowed_lifetime_max' config options.
+#
+# If this feature is enabled, Synapse will regularly look for and purge events
+# which are older than the room's maximum retention period. Synapse will also
+# filter events received over federation so that events that should have been
+# purged are ignored and not stored again.
+#
+retention:
+  # The message retention policies feature is disabled by default. Uncomment the
+  # following line to enable it.
+  #
+  #enabled: true
+
+  # Default retention policy. If set, Synapse will apply it to rooms that lack the
+  # 'm.room.retention' state event. Currently, the value of 'min_lifetime' doesn't
+  # matter much because Synapse doesn't take it into account yet.
+  #
+  #default_policy:
+  #  min_lifetime: 1d
+  #  max_lifetime: 1y
+
+  # Retention policy limits. If set, a user won't be able to send a
+  # 'm.room.retention' event which features a 'min_lifetime' or a 'max_lifetime'
+  # that's not within this range. This is especially useful in closed federations,
+  # in which server admins can make sure every federating server applies the same
+  # rules.
+  #
+  #allowed_lifetime_min: 1d
+  #allowed_lifetime_max: 1y
+
+  # Server admins can define the settings of the background jobs purging the
+  # events which lifetime has expired under the 'purge_jobs' section.
+  #
+  # If no configuration is provided, a single job will be set up to delete expired
+  # events in every room daily.
+  #
+  # Each job's configuration defines which range of message lifetimes the job
+  # takes care of. For example, if 'shortest_max_lifetime' is '2d' and
+  # 'longest_max_lifetime' is '3d', the job will handle purging expired events in
+  # rooms whose state defines a 'max_lifetime' that's both higher than 2 days, and
+  # lower than or equal to 3 days. Both the minimum and the maximum value of a
+  # range are optional, e.g. a job with no 'shortest_max_lifetime' and a
+  # 'longest_max_lifetime' of '3d' will handle every room with a retention policy
+  # which 'max_lifetime' is lower than or equal to three days.
+  #
+  # The rationale for this per-job configuration is that some rooms might have a
+  # retention policy with a low 'max_lifetime', where history needs to be purged
+  # of outdated messages on a very frequent basis (e.g. every 5min), but not want
+  # that purge to be performed by a job that's iterating over every room it knows,
+  # which would be quite heavy on the server.
+  #
+  #purge_jobs:
+  #  - shortest_max_lifetime: 1d
+  #    longest_max_lifetime: 3d
+  #    interval: 5m:
+  #  - shortest_max_lifetime: 3d
+  #    longest_max_lifetime: 1y
+  #    interval: 24h
 
 
 ## TLS ##
@@ -788,6 +860,16 @@ uploads_path: "DATADIR/uploads"
 #  period: 6w
 #  renew_at: 1w
 #  renew_email_subject: "Renew your %(app)s account"
+#  # Directory in which Synapse will try to find the HTML files to serve to the
+#  # user when trying to renew an account. Optional, defaults to
+#  # synapse/res/templates.
+#  template_dir: "res/templates"
+#  # HTML to be displayed to the user after they successfully renewed their
+#  # account. Optional.
+#  account_renewed_html_path: "account_renewed.html"
+#  # HTML to be displayed when the user tries to renew an account with an invalid
+#  # renewal token. Optional.
+#  invalid_token_html_path: "invalid_token.html"
 
 # The user must provide all of the below types of 3PID when registering.
 #
@@ -800,8 +882,31 @@ uploads_path: "DATADIR/uploads"
 #
 #disable_msisdn_registration: true
 
+# Derive the user's matrix ID from a type of 3PID used when registering.
+# This overrides any matrix ID the user proposes when calling /register
+# The 3PID type should be present in registrations_require_3pid to avoid
+# users failing to register if they don't specify the right kind of 3pid.
+#
+#register_mxid_from_3pid: email
+
+# Uncomment to set the display name of new users to their email address,
+# rather than using the default heuristic.
+#
+#register_just_use_email_for_display_name: true
+
 # Mandate that users are only allowed to associate certain formats of
 # 3PIDs with accounts on this server.
+#
+# Use an Identity Server to establish which 3PIDs are allowed to register?
+# Overrides allowed_local_3pids below.
+#
+#check_is_for_allowed_local_3pids: matrix.org
+#
+# If you are using an IS you can also check whether that IS registers
+# pending invites for the given 3PID (and then allow it to sign up on
+# the platform):
+#
+#allow_invited_3pids: False
 #
 #allowed_local_3pids:
 #  - medium: email
@@ -810,6 +915,11 @@ uploads_path: "DATADIR/uploads"
 #    pattern: '.*@vector\.im'
 #  - medium: msisdn
 #    pattern: '\+44'
+
+# If true, stop users from trying to change the 3PIDs associated with
+# their accounts.
+#
+#disable_3pid_changes: False
 
 # Enable 3PIDs lookup requests to identity servers from this server.
 #
@@ -851,6 +961,30 @@ uploads_path: "DATADIR/uploads"
 #trusted_third_party_id_servers:
 #  - matrix.org
 #  - vector.im
+
+# If enabled, user IDs, display names and avatar URLs will be replicated
+# to this server whenever they change.
+# This is an experimental API currently implemented by sydent to support
+# cross-homeserver user directories.
+#
+#replicate_user_profiles_to: example.com
+
+# If specified, attempt to replay registrations, profile changes & 3pid
+# bindings on the given target homeserver via the AS API. The HS is authed
+# via a given AS token.
+#
+#shadow_server:
+#  hs_url: https://shadow.example.com
+#  hs: shadow.example.com
+#  as_token: 12u394refgbdhivsia
+
+# If enabled, don't let users set their own display names/avatars
+# other than for the very first time (unless they are a server admin).
+# Useful when provisioning users based on the contents of a 3rd party
+# directory and to avoid ambiguities.
+#
+#disable_set_displayname: False
+#disable_set_avatar_url: False
 
 # Users who register on this homeserver will automatically be joined
 # to these rooms
@@ -1063,6 +1197,36 @@ password_config:
    #
    #pepper: "EVEN_MORE_SECRET"
 
+   # Define and enforce a password policy. Each parameter is optional, boolean
+   # parameters default to 'false' and integer parameters default to 0.
+   # This is an early implementation of MSC2000.
+   #
+   #policy:
+      # Whether to enforce the password policy.
+      #
+      #enabled: true
+
+      # Minimum accepted length for a password.
+      #
+      #minimum_length: 15
+
+      # Whether a password must contain at least one digit.
+      #
+      #require_digit: true
+
+      # Whether a password must contain at least one symbol.
+      # A symbol is any character that's not a number or a letter.
+      #
+      #require_symbol: true
+
+      # Whether a password must contain at least one lowercase letter.
+      #
+      #require_lowercase: true
+
+      # Whether a password must contain at least one lowercase letter.
+      #
+      #require_uppercase: true
+
 
 
 # Enable sending emails for password resets, notification events or
@@ -1199,6 +1363,11 @@ password_config:
 #user_directory:
 #  enabled: true
 #  search_all_users: false
+#
+#  # If this is set, user search will be delegated to this ID server instead
+#  # of synapse performing the search itself.
+#  # This is an experimental API.
+#  defer_to_id_server: https://id.example.com
 
 
 # User Consent configuration
@@ -1351,3 +1520,16 @@ password_config:
 #    alias: "*"
 #    room_id: "*"
 #    action: allow
+
+
+# Server admins can define a Python module that implements extra rules for
+# allowing or denying incoming events. In order to work, this module needs to
+# override the methods defined in synapse/events/third_party_rules.py.
+#
+# This feature is designed to be used in closed federations only, where each
+# participating server enforces the same rules.
+#
+#third_party_event_rules:
+#  module: "my_custom_project.SuperRulesSet"
+#  config:
+#    example_option: 'things'

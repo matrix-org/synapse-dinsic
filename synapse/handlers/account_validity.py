@@ -110,6 +110,9 @@ class AccountValidityHandler(object):
         # Stop right here if the user doesn't have at least one email address.
         # In this case, they will have to ask their server admin to renew their
         # account manually.
+        # We don't need to do a specific check to make sure the account isn't
+        # deactivated, as a deactivated account isn't supposed to have any
+        # email address attached to it.
         if not addresses:
             return
 
@@ -220,10 +223,18 @@ class AccountValidityHandler(object):
 
         Args:
             renewal_token (str): Token sent with the renewal request.
+        Returns:
+            bool: Whether the provided token is valid.
         """
-        user_id = yield self.store.get_user_from_renewal_token(renewal_token)
+        try:
+            user_id = yield self.store.get_user_from_renewal_token(renewal_token)
+        except StoreError:
+            defer.returnValue(False)
+
         logger.debug("Renewing an account for user %s", user_id)
         yield self.renew_account_for_user(user_id)
+
+        defer.returnValue(True)
 
     @defer.inlineCallbacks
     def renew_account_for_user(self, user_id, expiration_ts=None, email_sent=False):

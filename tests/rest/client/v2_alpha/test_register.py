@@ -19,21 +19,20 @@ import datetime
 import json
 import os
 
+from mock import Mock
+
 import pkg_resources
+
+from twisted.internet import defer
 
 import synapse.rest.admin
 from synapse.api.constants import LoginType
 from synapse.api.errors import Codes
 from synapse.appservice import ApplicationService
 from synapse.rest.client.v1 import login
-from synapse.rest.client.v2_alpha import account_validity, register, sync
+from synapse.rest.client.v2_alpha import account, account_validity, register, sync
 
 from tests import unittest
-
-try:
-    from synapse.push.mailer import load_jinja2_templates
-except ImportError:
-    load_jinja2_templates = None
 
 
 class RegisterRestServletTestCase(unittest.HomeserverTestCase):
@@ -205,6 +204,53 @@ class RegisterRestServletTestCase(unittest.HomeserverTestCase):
         self.assertEquals(channel.result["code"], b"200", channel.result)
 
 
+class RegisterHideProfileTestCase(unittest.HomeserverTestCase):
+
+    servlets = [
+        synapse.rest.admin.register_servlets_for_client_rest_resource,
+    ]
+
+    def make_homeserver(self, reactor, clock):
+
+        self.url = b"/_matrix/client/r0/register"
+
+        config = self.default_config()
+        config["enable_registration"] = True
+        config["show_users_in_user_directory"] = False
+        config["replicate_user_profiles_to"] = ["fakeserver"]
+
+        mock_http_client = Mock(spec=[
+            "get_json",
+            "post_json_get_json",
+        ])
+        mock_http_client.post_json_get_json.return_value = defer.succeed((200, "{}"))
+
+        self.hs = self.setup_test_homeserver(
+            config=config,
+            simple_http_client=mock_http_client,
+        )
+
+        return self.hs
+
+    def test_profile_hidden(self):
+        user_id = self.register_user("kermit", "monkey")
+
+        post_json = self.hs.get_simple_http_client().post_json_get_json
+
+        # We expect post_json_get_json to have been called twice: once with the original
+        # profile and once with the None profile resulting from the request to hide it
+        # from the user directory.
+        self.assertEqual(post_json.call_count, 2, post_json.call_args_list)
+
+        # Get the args (and not kwargs) passed to post_json.
+        args = post_json.call_args[0]
+        # Make sure the last call was attempting to replicate profiles.
+        split_uri = args[0].split("/")
+        self.assertEqual(split_uri[len(split_uri) - 1], "replicate_profiles", args[0])
+        # Make sure the last profile update was overriding the user's profile to None.
+        self.assertEqual(args[1]["batch"][user_id], None, args[1])
+
+
 class AccountValidityTestCase(unittest.HomeserverTestCase):
 
     servlets = [
@@ -213,6 +259,7 @@ class AccountValidityTestCase(unittest.HomeserverTestCase):
         login.register_servlets,
         sync.register_servlets,
         account_validity.register_servlets,
+        account.register_servlets,
     ]
 
     def make_homeserver(self, reactor, clock):
@@ -307,13 +354,13 @@ class AccountValidityTestCase(unittest.HomeserverTestCase):
 
 class AccountValidityRenewalByEmailTestCase(unittest.HomeserverTestCase):
 
-    skip = "No Jinja installed" if not load_jinja2_templates else None
     servlets = [
         register.register_servlets,
         synapse.rest.admin.register_servlets_for_client_rest_resource,
         login.register_servlets,
         sync.register_servlets,
         account_validity.register_servlets,
+        account.register_servlets,
     ]
 
     def make_homeserver(self, reactor, clock):
@@ -328,6 +375,8 @@ class AccountValidityRenewalByEmailTestCase(unittest.HomeserverTestCase):
             "renew_at": 172800000,  # Time in ms for 2 days
             "renew_by_email_enabled": True,
             "renew_email_subject": "Renew your account",
+            "account_renewed_html_path": "account_renewed.html",
+            "invalid_token_html_path": "invalid_token.html",
         }
 
         # Email config.
@@ -364,20 +413,7 @@ class AccountValidityRenewalByEmailTestCase(unittest.HomeserverTestCase):
     def test_renewal_email(self):
         self.email_attempts = []
 
-        user_id = self.register_user("kermit", "monkey")
-        tok = self.login("kermit", "monkey")
-        # We need to manually add an email address otherwise the handler will do
-        # nothing.
-        now = self.hs.clock.time_msec()
-        self.get_success(
-            self.store.user_add_threepid(
-                user_id=user_id,
-                medium="email",
-                address="kermit@example.com",
-                validated_at=now,
-                added_at=now,
-            )
-        )
+        (user_id, tok) = self.create_user()
 
         # Move 6 days forward. This should trigger a renewal email to be sent.
         self.reactor.advance(datetime.timedelta(days=6).total_seconds())
@@ -391,6 +427,19 @@ class AccountValidityRenewalByEmailTestCase(unittest.HomeserverTestCase):
         self.render(request)
         self.assertEquals(channel.result["code"], b"200", channel.result)
 
+        # Check that we're getting HTML back.
+        content_type = None
+        for header in channel.result.get("headers", []):
+            if header[0] == b"Content-Type":
+                content_type = header[1]
+        self.assertEqual(content_type, b"text/html; charset=utf-8", channel.result)
+
+        # Check that the HTML we're getting is the one we expect on a successful renewal.
+        expected_html = self.hs.config.account_validity.account_renewed_html_content
+        self.assertEqual(
+            channel.result["body"], expected_html.encode("utf8"), channel.result
+        )
+
         # Move 3 days forward. If the renewal failed, every authed request with
         # our access token should be denied from now, otherwise they should
         # succeed.
@@ -399,9 +448,69 @@ class AccountValidityRenewalByEmailTestCase(unittest.HomeserverTestCase):
         self.render(request)
         self.assertEquals(channel.result["code"], b"200", channel.result)
 
+    def test_renewal_invalid_token(self):
+        # Hit the renewal endpoint with an invalid token and check that it behaves as
+        # expected, i.e. that it responds with 404 Not Found and the correct HTML.
+        url = "/_matrix/client/unstable/account_validity/renew?token=123"
+        request, channel = self.make_request(b"GET", url)
+        self.render(request)
+        self.assertEquals(channel.result["code"], b"404", channel.result)
+
+        # Check that we're getting HTML back.
+        content_type = None
+        for header in channel.result.get("headers", []):
+            if header[0] == b"Content-Type":
+                content_type = header[1]
+        self.assertEqual(content_type, b"text/html; charset=utf-8", channel.result)
+
+        # Check that the HTML we're getting is the one we expect when using an
+        # invalid/unknown token.
+        expected_html = self.hs.config.account_validity.invalid_token_html_content
+        self.assertEqual(
+            channel.result["body"], expected_html.encode("utf8"), channel.result
+        )
+
     def test_manual_email_send(self):
         self.email_attempts = []
 
+        (user_id, tok) = self.create_user()
+        request, channel = self.make_request(
+            b"POST",
+            "/_matrix/client/unstable/account_validity/send_mail",
+            access_token=tok,
+        )
+        self.render(request)
+        self.assertEquals(channel.result["code"], b"200", channel.result)
+
+        self.assertEqual(len(self.email_attempts), 1)
+
+    def test_deactivated_user(self):
+        self.email_attempts = []
+
+        (user_id, tok) = self.create_user()
+
+        request_data = json.dumps({
+            "auth": {
+                "type": "m.login.password",
+                "user": user_id,
+                "password": "monkey",
+            },
+            "erase": False,
+        })
+        request, channel = self.make_request(
+            "POST",
+            "account/deactivate",
+            request_data,
+            access_token=tok,
+        )
+        self.render(request)
+        self.assertEqual(request.code, 200, channel.result)
+
+        self.reactor.advance(datetime.timedelta(days=8).total_seconds())
+
+        self.assertEqual(len(self.email_attempts), 0)
+
+    def create_user(self):
         user_id = self.register_user("kermit", "monkey")
         tok = self.login("kermit", "monkey")
         # We need to manually add an email address otherwise the handler will do
@@ -416,7 +525,33 @@ class AccountValidityRenewalByEmailTestCase(unittest.HomeserverTestCase):
                 added_at=now,
             )
         )
+        return (user_id, tok)
 
+    def test_manual_email_send_expired_account(self):
+        user_id = self.register_user("kermit", "monkey")
+        tok = self.login("kermit", "monkey")
+
+        # We need to manually add an email address otherwise the handler will do
+        # nothing.
+        now = self.hs.clock.time_msec()
+        self.get_success(
+            self.store.user_add_threepid(
+                user_id=user_id,
+                medium="email",
+                address="kermit@example.com",
+                validated_at=now,
+                added_at=now,
+            )
+        )
+
+        # Make the account expire.
+        self.reactor.advance(datetime.timedelta(days=8).total_seconds())
+
+        # Ignore all emails sent by the automatic background task and only focus on the
+        # ones sent manually.
+        self.email_attempts = []
+
+        # Test that we're still able to manually trigger a mail to be sent.
         request, channel = self.make_request(
             b"POST",
             "/_matrix/client/unstable/account_validity/send_mail",

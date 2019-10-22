@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
-# Copyright 2014 - 2016 OpenMarket Ltd
-# Copyright 2017 - 2018 New Vector Ltd
+# Copyright 2014-2016 OpenMarket Ltd
+# Copyright 2017-2018 New Vector Ltd
+# Copyright 2019 The Matrix.org Foundation C.I.C.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -248,6 +249,7 @@ class EventCreationHandler(object):
         self.action_generator = hs.get_action_generator()
 
         self.spam_checker = hs.get_spam_checker()
+        self.third_party_event_rules = hs.get_third_party_event_rules()
 
         self._block_events_without_consent_error = (
             self.config.block_events_without_consent_error
@@ -370,7 +372,7 @@ class EventCreationHandler(object):
                     "You must be in the room to create an alias for it",
                 )
 
-        self.validator.validate_new(event)
+        self.validator.validate_new(event, self.config)
 
         defer.returnValue((event, context))
 
@@ -602,7 +604,7 @@ class EventCreationHandler(object):
         if requester:
             context.app_service = requester.app_service
 
-        self.validator.validate_new(event)
+        self.validator.validate_new(event, self.config)
 
         # If this event is an annotation then we check that that the sender
         # can't annotate the same way twice (e.g. stops users from liking an
@@ -657,6 +659,14 @@ class EventCreationHandler(object):
             )
         else:
             room_version = yield self.store.get_room_version(event.room_id)
+
+        event_allowed = yield self.third_party_event_rules.check_event_allowed(
+            event, context,
+        )
+        if not event_allowed:
+            raise SynapseError(
+                403, "This event is not allowed in this context", Codes.FORBIDDEN,
+            )
 
         try:
             yield self.auth.check_from_context(room_version, event, context)

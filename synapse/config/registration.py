@@ -13,7 +13,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import os
 from distutils.util import strtobool
+
+import pkg_resources
 
 from synapse.config._base import Config, ConfigError
 from synapse.types import RoomAlias
@@ -41,8 +44,36 @@ class AccountValidityConfig(Config):
 
             self.startup_job_max_delta = self.period * 10. / 100.
 
-        if self.renew_by_email_enabled and "public_baseurl" not in synapse_config:
-            raise ConfigError("Can't send renewal emails without 'public_baseurl'")
+        if self.renew_by_email_enabled:
+            if "public_baseurl" not in synapse_config:
+                raise ConfigError("Can't send renewal emails without 'public_baseurl'")
+
+        template_dir = config.get("template_dir")
+
+        if not template_dir:
+            template_dir = pkg_resources.resource_filename("synapse", "res/templates")
+
+        if "account_renewed_html_path" in config:
+            file_path = os.path.join(template_dir, config["account_renewed_html_path"])
+
+            self.account_renewed_html_content = self.read_file(
+                file_path, "account_validity.account_renewed_html_path"
+            )
+        else:
+            self.account_renewed_html_content = (
+                "<html><body>Your account has been successfully renewed.</body><html>"
+            )
+
+        if "invalid_token_html_path" in config:
+            file_path = os.path.join(template_dir, config["invalid_token_html_path"])
+
+            self.invalid_token_html_content = self.read_file(
+                file_path, "account_validity.invalid_token_html_path"
+            )
+        else:
+            self.invalid_token_html_content = (
+                "<html><body>Invalid renewal token.</body><html>"
+            )
 
 
 class RegistrationConfig(Config):
@@ -62,8 +93,19 @@ class RegistrationConfig(Config):
 
         self.registrations_require_3pid = config.get("registrations_require_3pid", [])
         self.allowed_local_3pids = config.get("allowed_local_3pids", [])
+        self.check_is_for_allowed_local_3pids = config.get(
+            "check_is_for_allowed_local_3pids", None
+        )
+        self.allow_invited_3pids = config.get("allow_invited_3pids", False)
+
+        self.disable_3pid_changes = config.get("disable_3pid_changes", False)
+
         self.enable_3pid_lookup = config.get("enable_3pid_lookup", True)
         self.registration_shared_secret = config.get("registration_shared_secret")
+        self.register_mxid_from_3pid = config.get("register_mxid_from_3pid")
+        self.register_just_use_email_for_display_name = config.get(
+            "register_just_use_email_for_display_name", False,
+        )
 
         self.bcrypt_rounds = config.get("bcrypt_rounds", 12)
         self.trusted_third_party_id_servers = config.get(
@@ -82,6 +124,16 @@ class RegistrationConfig(Config):
             if not RoomAlias.is_valid(room_alias):
                 raise ConfigError('Invalid auto_join_rooms entry %s' % (room_alias,))
         self.autocreate_auto_join_rooms = config.get("autocreate_auto_join_rooms", True)
+
+        self.disable_set_displayname = config.get("disable_set_displayname", False)
+        self.disable_set_avatar_url = config.get("disable_set_avatar_url", False)
+
+        self.replicate_user_profiles_to = config.get("replicate_user_profiles_to", [])
+        if not isinstance(self.replicate_user_profiles_to, list):
+            self.replicate_user_profiles_to = [self.replicate_user_profiles_to, ]
+
+        self.shadow_server = config.get("shadow_server", None)
+        self.rewrite_identity_server_urls = config.get("rewrite_identity_server_urls", {})
 
         self.disable_msisdn_registration = (
             config.get("disable_msisdn_registration", False)
@@ -140,6 +192,16 @@ class RegistrationConfig(Config):
         #  period: 6w
         #  renew_at: 1w
         #  renew_email_subject: "Renew your %%(app)s account"
+        #  # Directory in which Synapse will try to find the HTML files to serve to the
+        #  # user when trying to renew an account. Optional, defaults to
+        #  # synapse/res/templates.
+        #  template_dir: "res/templates"
+        #  # HTML to be displayed to the user after they successfully renewed their
+        #  # account. Optional.
+        #  account_renewed_html_path: "account_renewed.html"
+        #  # HTML to be displayed when the user tries to renew an account with an invalid
+        #  # renewal token. Optional.
+        #  invalid_token_html_path: "invalid_token.html"
 
         # The user must provide all of the below types of 3PID when registering.
         #
@@ -152,8 +214,31 @@ class RegistrationConfig(Config):
         #
         #disable_msisdn_registration: true
 
+        # Derive the user's matrix ID from a type of 3PID used when registering.
+        # This overrides any matrix ID the user proposes when calling /register
+        # The 3PID type should be present in registrations_require_3pid to avoid
+        # users failing to register if they don't specify the right kind of 3pid.
+        #
+        #register_mxid_from_3pid: email
+
+        # Uncomment to set the display name of new users to their email address,
+        # rather than using the default heuristic.
+        #
+        #register_just_use_email_for_display_name: true
+
         # Mandate that users are only allowed to associate certain formats of
         # 3PIDs with accounts on this server.
+        #
+        # Use an Identity Server to establish which 3PIDs are allowed to register?
+        # Overrides allowed_local_3pids below.
+        #
+        #check_is_for_allowed_local_3pids: matrix.org
+        #
+        # If you are using an IS you can also check whether that IS registers
+        # pending invites for the given 3PID (and then allow it to sign up on
+        # the platform):
+        #
+        #allow_invited_3pids: False
         #
         #allowed_local_3pids:
         #  - medium: email
@@ -162,6 +247,11 @@ class RegistrationConfig(Config):
         #    pattern: '.*@vector\\.im'
         #  - medium: msisdn
         #    pattern: '\\+44'
+
+        # If true, stop users from trying to change the 3PIDs associated with
+        # their accounts.
+        #
+        #disable_3pid_changes: False
 
         # Enable 3PIDs lookup requests to identity servers from this server.
         #
@@ -203,6 +293,30 @@ class RegistrationConfig(Config):
         #trusted_third_party_id_servers:
         #  - matrix.org
         #  - vector.im
+
+        # If enabled, user IDs, display names and avatar URLs will be replicated
+        # to this server whenever they change.
+        # This is an experimental API currently implemented by sydent to support
+        # cross-homeserver user directories.
+        #
+        #replicate_user_profiles_to: example.com
+
+        # If specified, attempt to replay registrations, profile changes & 3pid
+        # bindings on the given target homeserver via the AS API. The HS is authed
+        # via a given AS token.
+        #
+        #shadow_server:
+        #  hs_url: https://shadow.example.com
+        #  hs: shadow.example.com
+        #  as_token: 12u394refgbdhivsia
+
+        # If enabled, don't let users set their own display names/avatars
+        # other than for the very first time (unless they are a server admin).
+        # Useful when provisioning users based on the contents of a 3rd party
+        # directory and to avoid ambiguities.
+        #
+        #disable_set_displayname: False
+        #disable_set_avatar_url: False
 
         # Users who register on this homeserver will automatically be joined
         # to these rooms

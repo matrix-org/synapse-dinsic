@@ -320,7 +320,7 @@ class PublicRoomListRestServlet(TransactionRestServlet):
             # Option to allow servers to require auth when accessing
             # /publicRooms via CS API. This is especially helpful in private
             # federations.
-            if self.hs.config.restrict_public_rooms_to_local_users:
+            if not self.hs.config.allow_public_rooms_without_auth:
                 raise
 
             # We allow people to not be authed if they're just looking at our
@@ -704,7 +704,8 @@ class RoomMembershipRestServlet(TransactionRestServlet):
                 content["address"],
                 content["id_server"],
                 requester,
-                txn_id
+                txn_id,
+                new_room=False,
             )
             defer.returnValue((200, {}))
             return

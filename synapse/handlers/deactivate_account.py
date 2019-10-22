@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 # Copyright 2017, 2018 New Vector Ltd
+# Copyright 2019 The Matrix.org Foundation C.I.C.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -33,6 +34,7 @@ class DeactivateAccountHandler(BaseHandler):
         self._device_handler = hs.get_device_handler()
         self._room_member_handler = hs.get_room_member_handler()
         self._identity_handler = hs.get_handlers().identity_handler
+        self._profile_handler = hs.get_profile_handler()
         self.user_directory_handler = hs.get_user_directory_handler()
 
         # Flag that indicates whether the process to part users from rooms is running
@@ -41,6 +43,8 @@ class DeactivateAccountHandler(BaseHandler):
         # Start the user parter loop so it can resume parting users from rooms where
         # it left off (if it has work left to do).
         hs.get_reactor().callWhenRunning(self._start_user_parting)
+
+        self._account_validity_enabled = hs.config.account_validity.enabled
 
     @defer.inlineCallbacks
     def deactivate_account(self, user_id, erase_data, id_server=None):
@@ -98,6 +102,9 @@ class DeactivateAccountHandler(BaseHandler):
 
         yield self.store.user_set_password_hash(user_id, None)
 
+        user = UserID.from_string(user_id)
+        yield self._profile_handler.set_active(user, False, False)
+
         # Add the user to a table of users pending deactivation (ie.
         # removal from all the rooms they're a member of)
         yield self.store.add_user_pending_deactivation(user_id)
@@ -114,7 +121,51 @@ class DeactivateAccountHandler(BaseHandler):
         # parts users from rooms (if it isn't already running)
         self._start_user_parting()
 
+        # Reject all pending invites for the user, so that the user doesn't show up in the
+        # "invited" section of rooms' members list.
+        yield self._reject_pending_invites_for_user(user_id)
+
+        # Remove all information on the user from the account_validity table.
+        if self._account_validity_enabled:
+            yield self.store.delete_account_validity_for_user(user_id)
+
+        # Mark the user as deactivated.
+        yield self.store.set_user_deactivated_status(user_id, True)
+
         defer.returnValue(identity_server_supports_unbinding)
+
+    @defer.inlineCallbacks
+    def _reject_pending_invites_for_user(self, user_id):
+        """Reject pending invites addressed to a given user ID.
+
+        Args:
+            user_id (str): The user ID to reject pending invites for.
+        """
+        user = UserID.from_string(user_id)
+        pending_invites = yield self.store.get_invited_rooms_for_user(user_id)
+
+        for room in pending_invites:
+            try:
+                yield self._room_member_handler.update_membership(
+                    create_requester(user),
+                    user,
+                    room.room_id,
+                    "leave",
+                    ratelimit=False,
+                    require_consent=False,
+                )
+                logger.info(
+                    "Rejected invite for deactivated user %r in room %r",
+                    user_id,
+                    room.room_id,
+                )
+            except Exception:
+                logger.exception(
+                    "Failed to reject invite for user %r in room %r:"
+                    " ignoring and continuing",
+                    user_id,
+                    room.room_id,
+                )
 
     def _start_user_parting(self):
         """

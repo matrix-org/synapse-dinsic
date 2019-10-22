@@ -184,11 +184,22 @@ class Auth(object):
         return event_auth.get_public_keys(invite_event)
 
     @defer.inlineCallbacks
-    def get_user_by_req(self, request, allow_guest=False, rights="access"):
+    def get_user_by_req(
+        self,
+        request,
+        allow_guest=False,
+        rights="access",
+        allow_expired=False,
+    ):
         """ Get a registered user's ID.
 
         Args:
             request - An HTTP request with an access_token query parameter.
+            allow_expired - Whether to allow the request through even if the account is
+                expired. If true, Synapse will still require an access token to be
+                provided but won't check if the account it belongs to has expired. This
+                works thanks to /login delivering access tokens regardless of accounts'
+                expiration.
         Returns:
             defer.Deferred: resolves to a ``synapse.types.Requester`` object
         Raises:
@@ -207,6 +218,7 @@ class Auth(object):
             )
 
             user_id, app_service = yield self._get_appservice_user_id(request)
+
             if user_id:
                 request.authenticated_entity = user_id
 
@@ -229,7 +241,7 @@ class Auth(object):
             is_guest = user_info["is_guest"]
 
             # Deny the request if the user account has expired.
-            if self._account_validity.enabled:
+            if self._account_validity.enabled and not allow_expired:
                 user_id = user.to_string()
                 expiration_ts = yield self.store.get_expiration_ts_for_user(user_id)
                 if expiration_ts is not None and self.clock.time_msec() >= expiration_ts:
@@ -268,39 +280,40 @@ class Auth(object):
                 errcode=Codes.MISSING_TOKEN
             )
 
-    @defer.inlineCallbacks
     def _get_appservice_user_id(self, request):
         app_service = self.store.get_app_service_by_token(
             self.get_access_token_from_request(
                 request, self.TOKEN_NOT_FOUND_HTTP_STATUS
             )
         )
+
         if app_service is None:
-            defer.returnValue((None, None))
+            return(None, None)
 
         if app_service.ip_range_whitelist:
             ip_address = IPAddress(self.hs.get_ip_from_request(request))
             if ip_address not in app_service.ip_range_whitelist:
-                defer.returnValue((None, None))
+                return(None, None)
 
         if b"user_id" not in request.args:
-            defer.returnValue((app_service.sender, app_service))
+            return(app_service.sender, app_service)
 
         user_id = request.args[b"user_id"][0].decode('utf8')
         if app_service.sender == user_id:
-            defer.returnValue((app_service.sender, app_service))
+            return(app_service.sender, app_service)
 
         if not app_service.is_interested_in_user(user_id):
             raise AuthError(
                 403,
                 "Application service cannot masquerade as this user."
             )
-        if not (yield self.store.get_user_by_id(user_id)):
-            raise AuthError(
-                403,
-                "Application service has not registered this user"
-            )
-        defer.returnValue((user_id, app_service))
+        # Let ASes manipulate nonexistent users (e.g. to shadow-register them)
+        # if not (yield self.store.get_user_by_id(user_id)):
+        #     raise AuthError(
+        #         403,
+        #         "Application service has not registered this user"
+        #     )
+        return(user_id, app_service)
 
     @defer.inlineCallbacks
     def get_user_by_access_token(self, token, rights="access"):
@@ -533,24 +546,15 @@ class Auth(object):
         defer.returnValue(user_info)
 
     def get_appservice_by_req(self, request):
-        try:
-            token = self.get_access_token_from_request(
-                request, self.TOKEN_NOT_FOUND_HTTP_STATUS
-            )
-            service = self.store.get_app_service_by_token(token)
-            if not service:
-                logger.warn("Unrecognised appservice access token.")
-                raise AuthError(
-                    self.TOKEN_NOT_FOUND_HTTP_STATUS,
-                    "Unrecognised access token.",
-                    errcode=Codes.UNKNOWN_TOKEN
-                )
-            request.authenticated_entity = service.sender
-            return defer.succeed(service)
-        except KeyError:
+        (user_id, app_service) = self._get_appservice_user_id(request)
+        if not app_service:
             raise AuthError(
-                self.TOKEN_NOT_FOUND_HTTP_STATUS, "Missing access token."
+                self.TOKEN_NOT_FOUND_HTTP_STATUS,
+                "Unrecognised access token.",
+                errcode=Codes.UNKNOWN_TOKEN,
             )
+        request.authenticated_entity = app_service.sender
+        return app_service
 
     def is_server_admin(self, user):
         """ Check if the given user is a local server admin.
