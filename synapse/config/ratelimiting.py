@@ -68,7 +68,9 @@ class RatelimitConfig(Config):
             )
 
         self.rc_registration = RateLimitConfig(config.get("rc_registration", {}))
-        self.rc_third_party_invite = RateLimitConfig(config.get("rc_third_party_invite", {}))
+        self.rc_third_party_invite = RateLimitConfig(
+            config.get("rc_third_party_invite", {})
+        )
 
         rc_login_config = config.get("rc_login", {})
         self.rc_login_address = RateLimitConfig(rc_login_config.get("address", {}))
