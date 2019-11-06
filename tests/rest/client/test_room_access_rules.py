@@ -326,6 +326,10 @@ class RoomAccessTestCase(unittest.HomeserverTestCase):
             expect_code=200,
         )
 
+        # Disable the 3pid invite ratelimiter
+        self.hs.config.rc_third_party_invite.burst_count = 10
+        self.hs.config.rc_third_party_invite.per_second = 0.1
+
         # We can't send a 3PID invite to a room that already has two members.
         self.send_threepid_invite(
             address="test@allowed_domain",
