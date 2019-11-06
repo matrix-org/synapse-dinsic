@@ -327,6 +327,8 @@ class RoomAccessTestCase(unittest.HomeserverTestCase):
         )
 
         # Disable the 3pid invite ratelimiter
+        burst = self.hs.config.rc_third_party_invite.burst_count
+        per_second = self.hs.config.rc_third_party_invite.per_second
         self.hs.config.rc_third_party_invite.burst_count = 10
         self.hs.config.rc_third_party_invite.per_second = 0.1
 
@@ -357,6 +359,9 @@ class RoomAccessTestCase(unittest.HomeserverTestCase):
             room_id=self.direct_rooms[2],
             expected_code=403,
         )
+
+        self.hs.config.rc_third_party_invite.burst_count = burst
+        self.hs.config.rc_third_party_invite.per_second = per_second
 
     def test_unrestricted(self):
         """Tests that, in unrestricted mode, we can invite whoever we want, but we can
