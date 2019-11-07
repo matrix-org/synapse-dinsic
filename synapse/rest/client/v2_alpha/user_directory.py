@@ -93,5 +93,43 @@ class UserDirectorySearchRestServlet(RestServlet):
         defer.returnValue((200, results))
 
 
+class UserInfoServlet(RestServlet):
+    """
+    GET /user/{user_id}/info HTTP/1.1
+    """
+    PATTERNS = client_patterns(
+        "/user/(?P<user_id>[^/]*)/info$"
+    )
+
+    def __init__(self, hs):
+        super(UserInfoServlet, self).__init__()
+        self.auth = hs.get_auth()
+        self.store = hs.get_datastore()
+        self.notifier = hs.get_notifier()
+        self.clock = hs.get_clock()
+
+    @defer.inlineCallbacks
+    def on_GET(self, request, user_id):
+        # Ensure the user is authenticated
+        yield self.auth.get_user_by_req(request, allow_guest=False)
+
+        # Check whether user is deactivated
+        is_deactivated = yield self.store.get_user_deactivated_status(user_id)
+
+        # Check whether user is expired
+        expiration_ts = yield self.store.get_expiration_ts_for_user(user_id)
+        is_expired = (
+            expiration_ts is not None and self.clock.time_msec() >= expiration_ts
+        )
+
+        res = {
+            "expired": is_expired,
+            "deactivated": is_deactivated,
+        }
+
+        defer.returnValue((200, res))
+
+
 def register_servlets(hs, http_server):
     UserDirectorySearchRestServlet(hs).register(http_server)
+    UserInfoServlet(hs).register(http_server)
