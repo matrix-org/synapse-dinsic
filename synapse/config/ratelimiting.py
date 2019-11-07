@@ -105,7 +105,7 @@ class RatelimitConfig(Config):
         #   - one for login that ratelimits login requests based on the account the
         #     client is attempting to log into, based on the amount of failed login
         #     attempts for this account.
-        #   - one that ratelimits third-party invites requests based on the account the
+        #   - one that ratelimits third-party invites requests based on the account
         #     that's making the requests.
         #
         # The defaults are as shown below.
