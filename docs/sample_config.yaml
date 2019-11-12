@@ -1370,6 +1370,10 @@ password_config:
 #  enabled: true
 #  search_all_users: false
 #
+#  # Whether to show users that have expired and are then renewed in the user 
+#  # directory. Users that have expired will be automatically hidden.
+#  # show_renewed_users: true
+#
 #  # If this is set, user search will be delegated to this ID server instead
 #  # of synapse performing the search itself.
 #  # This is an experimental API.

@@ -25,6 +25,7 @@ class UserDirectoryConfig(Config):
         self.user_directory_search_enabled = True
         self.user_directory_search_all_users = False
         self.user_directory_defer_to_id_server = None
+        self.user_directory_show_renewed_users = True
         user_directory_config = config.get("user_directory", None)
         if user_directory_config:
             self.user_directory_search_enabled = (
@@ -35,6 +36,9 @@ class UserDirectoryConfig(Config):
             )
             self.user_directory_defer_to_id_server = (
                 user_directory_config.get("defer_to_id_server", None)
+            )
+            self.user_directory_show_renewed_users = (
+                user_directory_config.get("show_renewed_users", True)
             )
 
     def default_config(self, config_dir_path, server_name, **kwargs):
@@ -54,6 +58,10 @@ class UserDirectoryConfig(Config):
         #user_directory:
         #  enabled: true
         #  search_all_users: false
+        #
+        #  # Whether to show users that have expired and are then renewed in the user 
+        #  # directory. Users that have expired will be automatically hidden.
+        #  # show_renewed_users: true
         #
         #  # If this is set, user search will be delegated to this ID server instead
         #  # of synapse performing the search itself.

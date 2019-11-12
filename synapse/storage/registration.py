@@ -152,6 +152,33 @@ class RegistrationWorkerStore(SQLBaseStore):
         )
 
     @defer.inlineCallbacks
+    def hide_expired_users_in_user_directory(self):
+        """Hide all expired users in the user directory
+
+        Returns:
+            Deferred
+        """
+        def hide_expired_users_in_user_directory_txn(txn, now_ms):
+            # TODO: Does this SQL work???
+            sql = """
+            UPDATE account_data SET content = '{"hide_profile": true}'
+            WHERE account_data_type = "im.vector.hide_profile"
+            AND user_id IN (
+                SELECT user_id from account_validity
+                WHERE expiration_ts_ms <= ?
+            )
+            """
+            txn.execute(sql, (now_ms,))
+
+        res = yield self.runInteraction(
+            "hide_expired_users_in_user_directory_txn",
+            hide_expired_users_in_user_directory_txn,
+            self.clock.time_msec(),
+        )
+
+        defer.returnValue(res)
+
+    @defer.inlineCallbacks
     def set_renewal_token_for_user(self, user_id, renewal_token):
         """Defines a renewal token for a given user.
 

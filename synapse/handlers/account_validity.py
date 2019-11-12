@@ -74,6 +74,12 @@ class AccountValidityHandler(object):
                 30 * 60 * 1000,
             )
 
+        # Check every hour to remove expired users from the user directory
+        self.clock.looping_call(
+            self._remove_expired_users_from_user_directory,
+            60 * 60 * 1000,
+        )
+
     @defer.inlineCallbacks
     def send_renewal_emails(self):
         """Gets the list of users whose account is expiring in the amount of time
@@ -261,4 +267,20 @@ class AccountValidityHandler(object):
             email_sent=email_sent,
         )
 
+        # Check if renewed users should be reintroduced to the user directory
+        if self.hs.config.show_renewed_users_in_directory:
+            # Show the user in the directory again by setting the appropriate account_data key
+            self.store.add_account_data_for_user(
+                user_id, "im.vector.hide_profile", {"hide_profile": False}
+            )
+
         defer.returnValue(expiration_ts)
+
+    def _remove_expired_users_from_user_directory(self):
+        """Iterate over expired users. Set their account_data im.vector.hide_profile to
+        false to hide them from the user directory.
+
+        Returns:
+            Deferred
+        """
+        return self.store.set_account_data_for_expired_users()
