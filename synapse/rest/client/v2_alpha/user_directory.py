@@ -110,9 +110,12 @@ class UserInfoServlet(RestServlet):
         self.notifier = hs.get_notifier()
         self.clock = hs.get_clock()
         self.transport_layer = hs.get_federation_transport_client()
-        hs.get_federation_registry().register_query_handler(
-            "user_info", self._on_federation_query
-        )
+        registry = hs.get_federation_registry()
+
+        if not registry.query_handlers.get("user_info"):
+            registry.register_query_handler(
+                "user_info", self._on_federation_query
+            )
 
     @defer.inlineCallbacks
     def on_GET(self, request, user_id):
@@ -123,8 +126,8 @@ class UserInfoServlet(RestServlet):
         if not self.hs.is_mine(user):
             # Attempt to make a federation request to the server that owns this user
             args = {"user_id": user_id}
-            res = self.transport_layer.make_query(
-                user.domain, "user_info", args,
+            res = yield self.transport_layer.make_query(
+                user.domain, "user_info", args, retry_on_dns_fail=True,
             )
             defer.returnValue((200, res))
 
