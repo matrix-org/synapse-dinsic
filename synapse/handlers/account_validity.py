@@ -269,7 +269,8 @@ class AccountValidityHandler(object):
 
         # Check if renewed users should be reintroduced to the user directory
         if self.hs.config.show_renewed_users_in_directory:
-            # Show the user in the directory again by setting the appropriate account_data key
+            # Show the user in the directory again by setting the appropriate
+            # account_data key
             self.store.add_account_data_for_user(
                 user_id, "im.vector.hide_profile", {"hide_profile": False}
             )
