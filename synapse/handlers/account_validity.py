@@ -42,6 +42,7 @@ class AccountValidityHandler(object):
         self.clock = self.hs.get_clock()
 
         self._account_validity = self.hs.config.account_validity
+        self.profile_handler = self.hs.get_profile_handler()
 
         if self._account_validity.renew_by_email_enabled and load_jinja2_templates:
             # Don't do email-specific configuration if renewal by email is disabled.
@@ -76,7 +77,7 @@ class AccountValidityHandler(object):
 
         # Check every hour to remove expired users from the user directory
         self.clock.looping_call(
-            self._remove_expired_users_from_user_directory,
+            self._mark_expired_users_as_inactive,
             60 * 60 * 1000,
         )
 
@@ -268,20 +269,27 @@ class AccountValidityHandler(object):
         )
 
         # Check if renewed users should be reintroduced to the user directory
-        if self.hs.config.show_renewed_users_in_directory:
-            # Show the user in the directory again by setting the appropriate
-            # account_data key
-            self.store.add_account_data_for_user(
-                user_id, "im.vector.hide_profile", {"hide_profile": False}
-            )
+        if self.hs.config.user_directory_show_renewed_users:
+            # Show the user in the directory again by setting them to active
+            yield self.profile_handler.set_active(UserID.from_string(user_id), True, True)
 
         defer.returnValue(expiration_ts)
 
-    def _remove_expired_users_from_user_directory(self):
-        """Iterate over expired users. Set their account_data im.vector.hide_profile to
-        false to hide them from the user directory.
+    @defer.inlineCallbacks
+    def _mark_expired_users_as_inactive(self):
+        """Iterate over expired users. Mark them as inactive in order to hide them from the
+        user directory.
 
         Returns:
             Deferred
         """
-        return self.store.set_account_data_for_expired_users()
+        # Get expired users
+        expired_user_ids = yield self.store.get_expired_users()
+        expired_users = [
+            UserID.from_string(user_id)
+            for user_id in expired_user_ids
+        ]
+
+        # Mark each one as non-active
+        for user in expired_users:
+            yield self.profile_handler.set_active(user, False, True)

@@ -59,7 +59,7 @@ class UserDirectoryConfig(Config):
         #  enabled: true
         #  search_all_users: false
         #
-        #  # Whether to show users that have expired and are then renewed in the user 
+        #  # Whether to show users that have expired and are then renewed in the user
         #  # directory. Users that have expired will be automatically hidden.
         #  # show_renewed_users: true
         #

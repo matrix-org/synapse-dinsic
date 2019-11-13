@@ -152,30 +152,26 @@ class RegistrationWorkerStore(SQLBaseStore):
         )
 
     @defer.inlineCallbacks
-    def hide_expired_users_in_user_directory(self):
-        """Hide all expired users in the user directory
+    def get_expired_users(self):
+        """Get IDs of all expired users
 
         Returns:
-            Deferred
+            Deferred[list[str]]: List of expired user IDs
         """
-        def hide_expired_users_in_user_directory_txn(txn, now_ms):
-            # TODO: Does this SQL work???
+        def get_expired_users_txn(txn, now_ms):
             sql = """
-            UPDATE account_data SET content = '{"hide_profile": true}'
-            WHERE account_data_type = "im.vector.hide_profile"
-            AND user_id IN (
-                SELECT user_id from account_validity
-                WHERE expiration_ts_ms <= ?
-            )
+            SELECT user_id from account_validity
+            WHERE expiration_ts_ms <= ?
             """
             txn.execute(sql, (now_ms,))
+            rows = txn.fetchall()
+            return [row[0] for row in rows]
 
         res = yield self.runInteraction(
-            "hide_expired_users_in_user_directory_txn",
-            hide_expired_users_in_user_directory_txn,
+            "get_expired_users",
+            get_expired_users_txn,
             self.clock.time_msec(),
         )
-
         defer.returnValue(res)
 
     @defer.inlineCallbacks
