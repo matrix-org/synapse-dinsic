@@ -452,6 +452,40 @@ class AccountValidityUserDirectoryTestCase(unittest.HomeserverTestCase):
         replicated_content = batch[user_id]
         self.assertIsNone(replicated_content)
 
+        # Now renew the user, and check they get replicated again to the identity server
+        url = "/_matrix/client/unstable/admin/account_validity/validity"
+        params = {
+            "user_id": user_id,
+            "expiration_ts": 99999999999,
+            "enable_renewal_emails": False,
+        }
+        request_data = json.dumps(params)
+        request, channel = self.make_request(
+            b"POST", url, request_data, access_token=admin_tok
+        )
+        self.render(request)
+        self.assertEquals(channel.result["code"], b"200", channel.result)
+
+        self.pump(10)
+        self.reactor.advance(10)
+        self.pump()
+
+        # Check if the homeserver has replicated the user's profile to the identity server
+        post_json = self.hs.get_simple_http_client().post_json_get_json
+        self.assertNotEquals(post_json.call_args, None, post_json.call_args)
+        payload = post_json.call_args[0][1]
+        batch = payload.get("batch")
+        self.assertNotEquals(batch, None, batch)
+        self.assertEquals(len(batch), 1, batch)
+        replicated_user_id = list(batch.keys())[0]
+        self.assertEquals(replicated_user_id, user_id, replicated_user_id)
+
+        # There was replicated information about our user
+        # Check that it's not None, signifying that the user is back in the user
+        # directory
+        replicated_content = batch[user_id]
+        self.assertIsNotNone(replicated_content)
+
 
 class AccountValidityRenewalByEmailTestCase(unittest.HomeserverTestCase):
 
