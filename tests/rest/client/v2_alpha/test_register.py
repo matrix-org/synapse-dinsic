@@ -18,7 +18,6 @@
 import datetime
 import json
 import os
-import urllib
 
 from mock import Mock
 
@@ -30,13 +29,12 @@ import synapse.rest.admin
 from synapse.api.constants import LoginType
 from synapse.api.errors import Codes
 from synapse.appservice import ApplicationService
-from synapse.rest.client.v1 import login, profile, room
+from synapse.rest.client.v1 import login
 from synapse.rest.client.v2_alpha import (
     account,
     account_validity,
     register,
     sync,
-    user_directory,
 )
 
 from tests import unittest
@@ -456,8 +454,8 @@ class AccountValidityUserDirectoryTestCase(unittest.HomeserverTestCase):
         self.assertEquals(replicated_user_id, user_id, replicated_user_id)
 
         # There was replicated information about our user
-        # Check that it's None, signifying that the user should be removed from the user dir
-        # because they were expired
+        # Check that it's None, signifying that the user should be removed from the user
+        # directory because they were expired
         replicated_content = batch[user_id]
         self.assertIsNone(replicated_content)
 
