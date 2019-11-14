@@ -269,7 +269,7 @@ class AccountValidityHandler(object):
         )
 
         # Check if renewed users should be reintroduced to the user directory
-        if self.hs.config.user_directory_show_renewed_users:
+        if self.hs.config.show_users_in_user_directory:
             # Show the user in the directory again by setting them to active
             yield self.profile_handler.set_active(UserID.from_string(user_id), True, True)
 
