@@ -160,8 +160,8 @@ class RegistrationWorkerStore(SQLBaseStore):
         """
         def get_expired_users_txn(txn, now_ms):
             sql = """
-            SELECT user_id from account_validity
-            WHERE expiration_ts_ms <= ?
+                SELECT user_id from account_validity
+                WHERE expiration_ts_ms <= ?
             """
             txn.execute(sql, (now_ms,))
             rows = txn.fetchall()

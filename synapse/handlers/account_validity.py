@@ -42,6 +42,7 @@ class AccountValidityHandler(object):
         self.clock = self.hs.get_clock()
 
         self._account_validity = self.hs.config.account_validity
+        self._show_users_in_user_directory = self.hs.config.show_users_in_user_directory
         self.profile_handler = self.hs.get_profile_handler()
 
         if self._account_validity.renew_by_email_enabled and load_jinja2_templates:
@@ -269,7 +270,7 @@ class AccountValidityHandler(object):
         )
 
         # Check if renewed users should be reintroduced to the user directory
-        if self.hs.config.show_users_in_user_directory:
+        if self._show_users_in_user_directory:
             # Show the user in the directory again by setting them to active
             yield self.profile_handler.set_active(UserID.from_string(user_id), True, True)
 

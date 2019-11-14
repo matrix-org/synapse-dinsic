@@ -377,7 +377,6 @@ class AccountValidityUserDirectoryTestCase(unittest.HomeserverTestCase):
 
         # Mock homeserver requests to an identity server
         mock_http_client = Mock(spec=[
-            "get_json",
             "post_json_get_json",
         ])
         mock_http_client.post_json_get_json.return_value = defer.succeed((200, "{}"))
