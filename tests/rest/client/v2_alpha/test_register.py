@@ -389,7 +389,6 @@ class AccountValidityUserDirectoryTestCase(unittest.HomeserverTestCase):
 
         return self.hs
 
-    @unittest.DEBUG
     def test_expired_user_in_directory(self):
         """Test that an expired user is hidden in the user directory"""
         # Create an admin user to search the user directory
@@ -445,7 +444,7 @@ class AccountValidityUserDirectoryTestCase(unittest.HomeserverTestCase):
         batch = payload.get("batch")
         self.assertNotEquals(batch, None, batch)
         self.assertEquals(len(batch), 1, batch)
-        replicated_user_id = batch.keys()[0]
+        replicated_user_id = list(batch.keys())[0]
         self.assertEquals(replicated_user_id, user_id, replicated_user_id)
 
         # There was replicated information about our user
