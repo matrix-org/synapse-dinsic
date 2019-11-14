@@ -30,12 +30,7 @@ from synapse.api.constants import LoginType
 from synapse.api.errors import Codes
 from synapse.appservice import ApplicationService
 from synapse.rest.client.v1 import login
-from synapse.rest.client.v2_alpha import (
-    account,
-    account_validity,
-    register,
-    sync,
-)
+from synapse.rest.client.v2_alpha import account, account_validity, register, sync
 
 from tests import unittest
 
