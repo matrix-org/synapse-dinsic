@@ -18,7 +18,6 @@
 import hmac
 import logging
 import re
-import string
 from hashlib import sha1
 
 from six import string_types
