@@ -18,6 +18,7 @@
 import hmac
 import logging
 import re
+import string
 from hashlib import sha1
 
 from six import string_types
@@ -729,6 +730,30 @@ class RegisterRestServlet(RestServlet):
         }))
 
 
+def cap(s):
+    """Capitalise words in a string, including examples such as
+    'John-Doe'"""
+    if not s:
+        return s
+
+    # Split phrase by spaces and hyphens
+    # We will end up with a list of lists, where strings in each sublist must be
+    # joined by hyphens
+    # e.g 'jean-philippe person' -> [['jean', 'philippe'], ['person']]
+    s = [x.split("-") for x in s.split()]
+
+    # Capitalise each word in each sublist
+    # [['jean', 'philippe'], ['person']] -> [['Jean', 'Philippe'], ['Person']]
+    for i in range(len(s)):
+        inner_list = s[i]
+        for j in range(len(inner_list)):
+            s[i][j] = s[i][j].capitalize()
+
+    # Join each inner list with hyphens and each outer list by spaces
+    # [['Jean', 'Philippe'], ['Person']] -> 'Jean-Philippe Person'
+    return ' '.join(['-'.join(x) for x in s])
+
+
 def _map_email_to_displayname(address):
     """Custom mapping from an email address to a user displayname
 
@@ -757,26 +782,6 @@ def _map_email_to_displayname(address):
     # Otherwise, mark their org as the email's second-level domain name
     else:
         org = org_parts[-2]
-
-    def cap(s):
-        """Capitalise words in a string, including examples such as
-        'John-Doe'"""
-        if not s:
-            return s
-
-        # Convert str to a list so that we can edit each character
-        s = list(s)
-
-        # Capatilise the first letter
-        s[0] = s[0].capitalize()
-
-        s_len = len(s)
-        for i in range(s_len):
-            if (s[i] == " " or s[i] == "-") and i < s_len - 1:
-                s[i + 1] = s[i + 1].capitalize()
-
-        # Convert list back to a str
-        return ''.join(s)
 
     desired_display_name = (
         cap(parts[0]) + " [" + cap(org) + "]"
