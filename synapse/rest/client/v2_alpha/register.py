@@ -738,18 +738,18 @@ def cap(s):
     # Split phrase by spaces and hyphens
     # We will end up with a list of lists, where strings in each sublist must be
     # joined by hyphens
-    # e.g 'jean-philippe person' -> [['jean', 'philippe'], ['person']]
+    # e.g 'jack-phill person' -> [['jack', 'phill'], ['person']]
     s = [x.split("-") for x in s.split()]
 
     # Capitalise each word in each sublist
-    # [['jean', 'philippe'], ['person']] -> [['Jean', 'Philippe'], ['Person']]
+    # [['jack', 'phill'], ['person']] -> [['Jack', 'Phill'], ['Person']]
     for i in range(len(s)):
         inner_list = s[i]
         for j in range(len(inner_list)):
             s[i][j] = s[i][j].capitalize()
 
     # Join each inner list with hyphens and each outer list by spaces
-    # [['Jean', 'Philippe'], ['Person']] -> 'Jean-Philippe Person'
+    # [['Jack', 'Phill'], ['Person']] -> 'Jack-Phill Person'
     return ' '.join(['-'.join(x) for x in s])
 
 

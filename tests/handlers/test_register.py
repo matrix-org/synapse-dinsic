@@ -240,8 +240,8 @@ class RegistrationTestCase(unittest.HomeserverTestCase):
     def test_email_to_displayname_mapping(self):
         """Test that custom emails are mapped to new user displaynames correctly"""
         self._check_mapping(
-            "jean-philippe.martin-laval@developpement-durable.fr",
-            "Jean-Philippe Martin-Laval [Developpement-Durable]",
+            "jack-phillips.rivers@big-org.com",
+            "Jack-Phillips Rivers [Big-Org]",
         )
 
         self._check_mapping(
@@ -256,8 +256,8 @@ class RegistrationTestCase(unittest.HomeserverTestCase):
 
         # Multibyte unicode characters
         self._check_mapping(
-            "I♥.NY@example.com",
-            "I♥ Ny [Example]",
+            u"j\u030a\u0065an-poppy.seed@example.com",
+            u"J\u030a\u0065an-Poppy Seed [Example]",
         )
 
     def _check_mapping(self, i, expected):
