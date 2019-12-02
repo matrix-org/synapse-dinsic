@@ -729,29 +729,24 @@ class RegisterRestServlet(RestServlet):
         }))
 
 
-def cap(s):
-    """Capitalise words in a string, including examples such as
-    'John-Doe'
+def cap(name):
+    """Capitalise parts of a name containing different words, including those
+    separated by hyphens.
+    For example, 'John-Doe'
+
+    Args:
+        name (str): The name to parse
     """
-    if not s:
-        return s
+    if not name:
+        return name
 
-    # Split phrase by spaces and hyphens
-    # We will end up with a list of lists, where strings in each sublist must be
-    # joined by hyphens
-    # e.g 'jack-phill person' -> [['jack', 'phill'], ['person']]
-    s = [x.split("-") for x in s.split()]
-
-    # Capitalise each word in each sublist
-    # [['jack', 'phill'], ['person']] -> [['Jack', 'Phill'], ['Person']]
-    for i in range(len(s)):
-        inner_list = s[i]
-        for j in range(len(inner_list)):
-            s[i][j] = s[i][j].capitalize()
-
-    # Join each inner list with hyphens and each outer list by spaces
-    # [['Jack', 'Phill'], ['Person']] -> 'Jack-Phill Person'
-    return ' '.join(['-'.join(x) for x in s])
+    # Split the name by whitespace then hyphens, capitalizing each part then
+    # joining it back together.
+    capatilized_name = " ".join(
+        "-".join(part.capitalize() for part in space_part.split("-"))
+        for space_part in name.split()
+    )
+    return capatilized_name
 
 
 def _map_email_to_displayname(address):
