@@ -731,7 +731,8 @@ class RegisterRestServlet(RestServlet):
 
 def cap(s):
     """Capitalise words in a string, including examples such as
-    'John-Doe'"""
+    'John-Doe'
+    """
     if not s:
         return s
 
