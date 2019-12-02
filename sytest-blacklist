@@ -9,3 +9,6 @@ Forgotten room messages cannot be paginated
 
 # flaky test
 Local device key changes get to remote servers
+
+# flaky test
+Old leaves are present in gapped incremental syncs
