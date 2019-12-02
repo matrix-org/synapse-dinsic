@@ -541,7 +541,7 @@ class ServerConfig(Config):
         # the server.
         #
         #require_auth_for_profile_requests: true
-        
+
         # Whether to require a user to share a room with another user in order
         # to retrieve their profile information. Only checked on Client-Server
         # requests. Profile requests from other servers should be checked by the
