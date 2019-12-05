@@ -32,6 +32,7 @@ from synapse.api.errors import (
 from synapse.metrics.background_process_metrics import run_as_background_process
 from synapse.types import UserID, get_domain_from_id
 from synapse.util.logcontext import run_in_background
+from synapse.rest.media.v1._base import parse_media_id
 
 from ._base import BaseHandler
 
@@ -60,8 +61,12 @@ class BaseProfileHandler(BaseHandler):
         )
 
         self.user_directory_handler = hs.get_user_directory_handler()
+        self.media_repository = hs.get_media_repository()
 
         self.http_client = hs.get_simple_http_client()
+
+        self.max_avatar_size = hs.config.max_avatar_size
+        self.allowed_avatar_mimetypes = hs.config.allowed_avatar_mimetypes
 
         if hs.config.worker_app is None:
             self.clock.looping_call(
@@ -367,6 +372,32 @@ class BaseProfileHandler(BaseHandler):
             raise SynapseError(
                 400, "Avatar URL is too long (max %i)" % (MAX_AVATAR_URL_LEN, ),
             )
+
+        # Enforce a max avatar size if one is defined
+        if self.max_avatar_size or self.allowed_avatar_mimetypes:
+            # Download the desired media file (possibly from a remote resource)
+            server_name, media_id = parse_media_id(new_avatar_url)
+
+            responder, media_info = self.media_repository.get_media_from_cache_or_remote(
+                server_name, media_id
+            )
+
+            # Ensure avatar does not exceed max allowed avatar size
+            if self.max_avatar_size and (media_info["media_length"] > self.max_avatar_size):
+                raise SynapseError(
+                    400, "Avatars must be less than %s bytes in size",
+                    self.max_avatar_size,
+                )
+
+            # Ensure the avatar's file type is allowed
+            if (
+                self.allowed_avatar_mimetypes
+                and media_info["media_type"] not in self.allowed_avatar_mimetypes
+            ):
+                raise SynapseError(
+                    400, "Avatar file type '%s' is not allowed",
+                    media_info["media_length"],
+                )
 
         yield self.store.set_profile_avatar_url(
             target_user.localpart, new_avatar_url, new_batchnum,
