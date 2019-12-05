@@ -30,9 +30,9 @@ from synapse.api.errors import (
     SynapseError,
 )
 from synapse.metrics.background_process_metrics import run_as_background_process
+from synapse.rest.media.v1 import parse_media_id
 from synapse.types import UserID, get_domain_from_id
 from synapse.util.logcontext import run_in_background
-from synapse.rest.media.v1._base import parse_media_id
 
 from ._base import BaseHandler
 
@@ -383,7 +383,8 @@ class BaseProfileHandler(BaseHandler):
             )
 
             # Ensure avatar does not exceed max allowed avatar size
-            if self.max_avatar_size and (media_info["media_length"] > self.max_avatar_size):
+            media_size = media_info["media_length"]
+            if self.max_avatar_size and media_size > self.max_avatar_size:
                 raise SynapseError(
                     400, "Avatars must be less than %s bytes in size",
                     self.max_avatar_size,
