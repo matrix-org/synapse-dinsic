@@ -377,8 +377,7 @@ class BaseProfileHandler(BaseHandler):
         if self.max_avatar_size or self.allowed_avatar_mimetypes:
             # Download the desired media file (possibly from a remote resource)
             server_name, media_id = parse_media_id(new_avatar_url)
-
-            responder, media_info = self.media_repository.get_media_from_cache_or_remote(
+            responder, media_info = yield self.media_repository.get_media_from_cache_or_remote(
                 server_name, media_id
             )
 
