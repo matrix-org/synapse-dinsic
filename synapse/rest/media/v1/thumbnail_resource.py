@@ -23,13 +23,8 @@ from twisted.web.server import NOT_DONE_YET
 from synapse.http.server import set_cors_headers, wrap_json_request_handler
 from synapse.http.servlet import parse_integer, parse_string
 
-from ._base import (
-    FileInfo,
-    parse_media_id,
-    respond_404,
-    respond_with_file,
-    respond_with_responder,
-)
+from . import parse_media_id
+from ._base import FileInfo, respond_404, respond_with_file, respond_with_responder
 
 logger = logging.getLogger(__name__)
 
