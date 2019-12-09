@@ -18,6 +18,7 @@ import logging
 
 from twisted.internet import defer
 
+from synapse.api.errors import SynapseError
 from synapse.http.servlet import RestServlet, parse_json_object_from_request
 from synapse.rest.client.v2_alpha._base import client_patterns
 from synapse.types import UserID
@@ -133,17 +134,14 @@ class ProfileAvatarURLRestServlet(RestServlet):
         is_admin = yield self.auth.is_server_admin(requester.user)
 
         content = parse_json_object_from_request(request)
-        try:
-            new_avatar_url = content.get("avatar_url")
+        new_avatar_url = content.get("avatar_url")
 
-            if new_avatar_url is None:
-                defer.returnValue((400, "Missing required key: avatar_url"))
+        if new_avatar_url is None:
+            raise SynapseError(400, "Missing required key: avatar_url")
 
-            yield self.profile_handler.set_avatar_url(
-                user, requester, new_avatar_url, is_admin
-            )
-        except Exception:
-            defer.returnValue((400, "Unable to parse avatar_url"))
+        yield self.profile_handler.set_avatar_url(
+            user, requester, new_avatar_url, is_admin
+        )
 
         if self.hs.config.shadow_server:
             shadow_user = UserID(
