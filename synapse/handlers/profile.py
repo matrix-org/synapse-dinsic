@@ -30,7 +30,6 @@ from synapse.api.errors import (
     SynapseError,
 )
 from synapse.metrics.background_process_metrics import run_as_background_process
-from synapse.rest.media.v1 import parse_media_id
 from synapse.types import UserID, get_domain_from_id
 from synapse.util.logcontext import run_in_background
 
@@ -376,7 +375,12 @@ class BaseProfileHandler(BaseHandler):
         # Enforce a max avatar size if one is defined
         if self.max_avatar_size or self.allowed_avatar_mimetypes:
             # Download the desired media file (possibly from a remote resource)
-            server_name, media_id = parse_media_id(new_avatar_url)
+            try:
+                server_name, media_id = new_avatar_url.split("/")[-2:]
+            except ValueError:
+                raise SynapseError(400, "Invalid avatar URL '%s' supplied" %
+                                   new_avatar_url)
+
             responder, media_info = (
                 yield self.media_repository.get_media_from_cache_or_remote(
                     server_name, media_id

@@ -21,8 +21,7 @@ from twisted.web.server import NOT_DONE_YET
 import synapse.http.servlet
 from synapse.http.server import set_cors_headers, wrap_json_request_handler
 
-from . import parse_media_id
-from ._base import respond_404
+from ._base import parse_media_id, respond_404
 
 logger = logging.getLogger(__name__)
 

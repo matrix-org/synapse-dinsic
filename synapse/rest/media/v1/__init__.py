@@ -13,11 +13,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from six.moves import urllib
 
 import PIL.Image
-
-from synapse.api.errors import Codes, SynapseError
 
 # check for JPEG support.
 try:
@@ -47,26 +44,3 @@ except IOError as e:
 except Exception:
     # any other exception is fine
     pass
-
-
-def parse_media_id(request):
-    try:
-        # This allows users to append e.g. /test.png to the URL. Useful for
-        # clients that parse the URL to see content type.
-        server_name, media_id = request.postpath[:2]
-
-        if isinstance(server_name, bytes):
-            server_name = server_name.decode('utf-8')
-            media_id = media_id.decode('utf8')
-
-        file_name = None
-        if len(request.postpath) > 2:
-            try:
-                file_name = urllib.parse.unquote(request.postpath[-1].decode("utf-8"))
-            except UnicodeDecodeError:
-                pass
-        return server_name, media_id, file_name
-    except Exception:
-        raise SynapseError(
-            404, "Invalid media id token %r" % (request.postpath,), Codes.UNKNOWN
-        )
