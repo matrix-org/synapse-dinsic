@@ -243,7 +243,7 @@ class MediaRepository(object):
         # media multiple times concurrently
         key = (server_name, media_id)
         with (yield self.remote_media_linearizer.queue(key)):
-            responder, media_info = yield self._get_remote_media_impl(
+            responder, media_info = yield self.get_media_from_cache_or_remote(
                 server_name, media_id,
             )
 
