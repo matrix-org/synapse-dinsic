@@ -253,8 +253,9 @@ class ContentRepositoryConfig(Config):
         #
         #max_upload_size: 10M
 
-        # The largest allowed size for a user avatar. If not defined, no
-        # restriction will be imposed.
+        # The largest allowed size for a user avatar. Only enforced when
+        # enable_media_repo is True. If not defined, no restriction will be
+        # imposed.
         #
         # Note that this only applies to when an avatar is changed globally.
         # Per-room avatar changes are not affected. See allow_per_room_profiles
@@ -262,8 +263,9 @@ class ContentRepositoryConfig(Config):
         #
         #max_avatar_size: 10M
 
-        # Allow mimetypes for a user avatar. If not defined, no restriction will
-        # be imposed.
+        # Allow mimetypes for a user avatar. Only enforced when
+        # enable_media_repo is True. If not defined, no restriction will be
+        # imposed.
         #
         # Note that this only applies to when an avatar is changed globally.
         # Per-room avatar changes are not affected. See allow_per_room_profiles

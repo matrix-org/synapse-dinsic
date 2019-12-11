@@ -66,6 +66,7 @@ class BaseProfileHandler(BaseHandler):
 
         self.max_avatar_size = hs.config.max_avatar_size
         self.allowed_avatar_mimetypes = hs.config.allowed_avatar_mimetypes
+        self.media_repo_enabled = hs.config.enable_media_repo
 
         if hs.config.worker_app is None:
             self.clock.looping_call(
@@ -373,26 +374,30 @@ class BaseProfileHandler(BaseHandler):
             )
 
         # Enforce a max avatar size if one is defined
-        if self.max_avatar_size or self.allowed_avatar_mimetypes:
-            # Download the desired media file (possibly from a remote resource)
+        if (
+            self.media_repo_enabled and
+            (self.max_avatar_size or self.allowed_avatar_mimetypes)
+        ):
+            # Parse the media URI
             try:
-                server_name, media_id = new_avatar_url.split("/")[-2:]
+                media_id = new_avatar_url.split("/")[-1]
             except ValueError:
                 raise SynapseError(400, "Invalid avatar URL '%s' supplied" %
                                    new_avatar_url)
 
-            responder, media_info = (
-                yield self.media_repository.get_media_from_cache_or_remote(
-                    server_name, media_id
+            # Check that this media exists locally
+            media_info = yield self.store.get_local_media(media_id)
+            if not media_info:
+                raise SynapseError(
+                    400, "Unknown media id supplied", errcode=Codes.NOT_FOUND
                 )
-            )
 
             # Ensure avatar does not exceed max allowed avatar size
             media_size = media_info["media_length"]
             if self.max_avatar_size and media_size > self.max_avatar_size:
                 raise SynapseError(
-                    400, "Avatars must be less than %s bytes in size",
-                    self.max_avatar_size,
+                    400, "Avatars must be less than %s bytes in size" %
+                    (self.max_avatar_size,), errcode=Codes.TOO_LARGE,
                 )
 
             # Ensure the avatar's file type is allowed
