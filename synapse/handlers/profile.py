@@ -60,13 +60,11 @@ class BaseProfileHandler(BaseHandler):
         )
 
         self.user_directory_handler = hs.get_user_directory_handler()
-        self.media_repository = hs.get_media_repository()
 
         self.http_client = hs.get_simple_http_client()
 
         self.max_avatar_size = hs.config.max_avatar_size
         self.allowed_avatar_mimetypes = hs.config.allowed_avatar_mimetypes
-        self.media_repo_enabled = hs.config.enable_media_repo
 
         if hs.config.worker_app is None:
             self.clock.looping_call(
@@ -374,13 +372,10 @@ class BaseProfileHandler(BaseHandler):
             )
 
         # Enforce a max avatar size if one is defined
-        if (
-            self.media_repo_enabled and
-            (self.max_avatar_size or self.allowed_avatar_mimetypes)
-        ):
+        if self.max_avatar_size or self.allowed_avatar_mimetypes:
             # Parse the media URI
             try:
-                media_id = new_avatar_url.split("/")[-1]
+                _, media_id = new_avatar_url.split("/")
             except ValueError:
                 raise SynapseError(400, "Invalid avatar URL '%s' supplied" %
                                    new_avatar_url)

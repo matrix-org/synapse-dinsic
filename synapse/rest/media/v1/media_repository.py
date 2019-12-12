@@ -243,7 +243,7 @@ class MediaRepository(object):
         # media multiple times concurrently
         key = (server_name, media_id)
         with (yield self.remote_media_linearizer.queue(key)):
-            responder, media_info = yield self.get_media_from_cache_or_remote(
+            responder, media_info = yield self._get_remote_media_impl(
                 server_name, media_id,
             )
 
@@ -281,7 +281,7 @@ class MediaRepository(object):
         # media multiple times concurrently
         key = (server_name, media_id)
         with (yield self.remote_media_linearizer.queue(key)):
-            responder, media_info = yield self.get_media_from_cache_or_remote(
+            responder, media_info = yield self._get_remote_media_impl(
                 server_name, media_id,
             )
 
@@ -293,7 +293,7 @@ class MediaRepository(object):
         defer.returnValue(media_info)
 
     @defer.inlineCallbacks
-    def get_media_from_cache_or_remote(self, server_name, media_id):
+    def _get_remote_media_impl(self, server_name, media_id):
         """Looks for media in local cache, if not there then attempt to
         download from remote server.
 
