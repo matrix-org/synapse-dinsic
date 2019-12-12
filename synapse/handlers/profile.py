@@ -373,12 +373,7 @@ class BaseProfileHandler(BaseHandler):
 
         # Enforce a max avatar size if one is defined
         if self.max_avatar_size or self.allowed_avatar_mimetypes:
-            # Parse the media URI
-            try:
-                _, media_id = new_avatar_url.split("/")
-            except ValueError:
-                raise SynapseError(400, "Invalid avatar URL '%s' supplied" %
-                                   new_avatar_url)
+            media_id = self._validate_and_parse_media_id_from_avatar_url(new_avatar_url)
 
             # Check that this media exists locally
             media_info = yield self.store.get_local_media(media_id)
@@ -401,8 +396,8 @@ class BaseProfileHandler(BaseHandler):
                 and media_info["media_type"] not in self.allowed_avatar_mimetypes
             ):
                 raise SynapseError(
-                    400, "Avatar file type '%s' is not allowed",
-                    media_info["media_length"],
+                    400, "Avatar file type '%s' not allowed" %
+                    media_info["media_type"],
                 )
 
         yield self.store.set_profile_avatar_url(
@@ -419,6 +414,20 @@ class BaseProfileHandler(BaseHandler):
 
         # start a profile replication push
         run_in_background(self._replicate_profiles)
+
+    def _validate_and_parse_media_id_from_avatar_url(self, mxc):
+        """Validate and parse a provided avatar url and return the local media id
+
+        Args:
+            mxc (str): A mxc URL
+
+        Returns:
+            str: The ID of the media
+        """
+        avatar_pieces = mxc.split("/")
+        if len(avatar_pieces) != 4 or avatar_pieces[0] != "mxc:":
+            raise SynapseError(400, "Invalid avatar URL '%s' supplied" % mxc)
+        return avatar_pieces[-1]
 
     @defer.inlineCallbacks
     def on_profile_query(self, args):
