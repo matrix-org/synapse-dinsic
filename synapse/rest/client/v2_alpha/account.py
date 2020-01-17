@@ -34,6 +34,7 @@ from synapse.http.servlet import (
 )
 from synapse.types import UserID
 from synapse.util.msisdn import phone_number_to_msisdn
+from synapse.util.regex import is_valid_client_secret
 from synapse.util.stringutils import random_string
 from synapse.util.threepids import check_3pid_allowed
 
@@ -79,6 +80,11 @@ class EmailPasswordRequestTokenRestServlet(RestServlet):
 
         # Extract params from body
         client_secret = body["client_secret"]
+        if not is_valid_client_secret(client_secret):
+            raise SynapseError(
+                400, "Invalid client_secret parameter", errcode=Codes.INVALID_PARAM
+            )
+
         email = body["email"]
         send_attempt = body["send_attempt"]
         next_link = body.get("next_link")  # Optional param
@@ -216,6 +222,11 @@ class MsisdnPasswordRequestTokenRestServlet(RestServlet):
                 Codes.THREEPID_DENIED,
             )
 
+        if not is_valid_client_secret(body["client_secret"]):
+            raise SynapseError(
+                400, "Invalid client_secret parameter", errcode=Codes.INVALID_PARAM
+            )
+
         existingUid = yield self.datastore.get_user_id_by_threepid(
             'msisdn', msisdn
         )
@@ -257,6 +268,12 @@ class PasswordResetSubmitTokenServlet(RestServlet):
 
         sid = parse_string(request, "sid")
         client_secret = parse_string(request, "client_secret")
+
+        if not is_valid_client_secret(client_secret):
+            raise SynapseError(
+                400, "Invalid client_secret parameter", errcode=Codes.INVALID_PARAM
+            )
+
         token = parse_string(request, "token")
 
         # Attempt to validate a 3PID sesssion
@@ -329,6 +346,11 @@ class PasswordResetSubmitTokenServlet(RestServlet):
         assert_params_in_dict(body, [
             'sid', 'client_secret', 'token',
         ])
+
+        if not is_valid_client_secret(body["client_secret"]):
+            raise SynapseError(
+                400, "Invalid client_secret parameter", errcode=Codes.INVALID_PARAM
+            )
 
         valid, _ = yield self.datastore.validate_threepid_validation_token(
             body['sid'],
@@ -510,6 +532,11 @@ class EmailThreepidRequestTokenRestServlet(RestServlet):
                 Codes.THREEPID_DENIED,
             )
 
+        if not is_valid_client_secret(body["client_secret"]):
+            raise SynapseError(
+                400, "Invalid client_secret parameter", errcode=Codes.INVALID_PARAM
+            )
+
         existingUid = yield self.datastore.get_user_id_by_threepid(
             'email', body['email']
         )
@@ -545,6 +572,11 @@ class MsisdnThreepidRequestTokenRestServlet(RestServlet):
                 403,
                 "Account phone numbers are not authorized on this server",
                 Codes.THREEPID_DENIED,
+            )
+
+        if not is_valid_client_secret(body["client_secret"]):
+            raise SynapseError(
+                400, "Invalid client_secret parameter", errcode=Codes.INVALID_PARAM
             )
 
         existingUid = yield self.datastore.get_user_id_by_threepid(
