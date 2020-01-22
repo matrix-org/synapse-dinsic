@@ -43,7 +43,7 @@ from synapse.http.servlet import (
 )
 from synapse.util.msisdn import phone_number_to_msisdn
 from synapse.util.ratelimitutils import FederationRateLimiter
-from synapse.util.regex import is_valid_client_secret
+from synapse.util.stringutils import assert_valid_client_secret
 from synapse.util.threepids import check_3pid_allowed
 
 from ._base import client_patterns, interactive_auth_handler
@@ -89,10 +89,7 @@ class EmailRegisterRequestTokenRestServlet(RestServlet):
                 Codes.THREEPID_DENIED,
             )
 
-        if not is_valid_client_secret(body["client_secret"]):
-            raise SynapseError(
-                400, "Invalid client_secret parameter", errcode=Codes.INVALID_PARAM
-            )
+        assert_params_in_dict(body["client_secret"])
 
         existingUid = yield self.hs.get_datastore().get_user_id_by_threepid(
             'email', body['email']
@@ -129,10 +126,7 @@ class MsisdnRegisterRequestTokenRestServlet(RestServlet):
 
         msisdn = phone_number_to_msisdn(body['country'], body['phone_number'])
 
-        if not is_valid_client_secret(body["client_secret"]):
-            raise SynapseError(
-                400, "Invalid client_secret parameter", errcode=Codes.INVALID_PARAM
-            )
+        assert_valid_client_secret(body["client_secret"])
 
         if not (yield check_3pid_allowed(self.hs, "msisdn", msisdn)):
             raise SynapseError(
