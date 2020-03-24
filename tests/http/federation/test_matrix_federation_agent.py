@@ -31,8 +31,10 @@ from twisted.web.http_headers import Headers
 from twisted.web.iweb import IPolicyForHTTPS
 
 from synapse.config.homeserver import HomeServerConfig
-from synapse.crypto.context_factory import ClientTLSOptionsFactory
-from synapse.http.federation.matrix_federation_agent import MatrixFederationAgent
+from synapse.crypto.context_factory import FederationPolicyForHTTPS
+from synapse.http.federation.matrix_federation_agent import (
+    MatrixFederationAgent,
+)
 from synapse.http.federation.srv_resolver import Server
 from synapse.http.federation.well_known_resolver import (
     WellKnownResolver,
@@ -81,10 +83,10 @@ class MatrixFederationAgentTests(TestCase):
         self._config = config = HomeServerConfig()
         config.parse_config_dict(config_dict, "", "")
 
-        self.tls_factory = ClientTLSOptionsFactory(config)
+        self.tls_factory = FederationPolicyForHTTPS(config)
         self.agent = MatrixFederationAgent(
             reactor=self.reactor,
-            tls_client_options_factory=self.tls_factory,
+            tls_client_options_factory=FederationPolicyForHTTPS(config),
             _srv_resolver=self.mock_resolver,
             _well_known_cache=self.well_known_cache,
         )
@@ -708,7 +710,7 @@ class MatrixFederationAgentTests(TestCase):
 
         agent = MatrixFederationAgent(
             reactor=self.reactor,
-            tls_client_options_factory=ClientTLSOptionsFactory(config),
+            tls_client_options_factory=FederationPolicyForHTTPS(config),
             _srv_resolver=self.mock_resolver,
             _well_known_cache=self.well_known_cache,
         )

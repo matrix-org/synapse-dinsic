@@ -19,7 +19,7 @@ import os
 from OpenSSL import SSL
 
 from synapse.config.tls import ConfigError, TlsConfig
-from synapse.crypto.context_factory import ClientTLSOptionsFactory
+from synapse.crypto.context_factory import FederationPolicyForHTTPS
 
 from tests.unittest import TestCase
 
@@ -170,7 +170,7 @@ s4niecZKPBizL6aucT59CsunNmmb5Glq8rlAcU+1ZTZZzGYqVYhF6axB9Qg=
         t = TestConfig()
         t.read_config(config, config_dir_path="", data_dir_path="")
 
-        cf = ClientTLSOptionsFactory(t)
+        cf = FederationPolicyForHTTPS(t)
 
         # The context has had NO_TLSv1_1 and NO_TLSv1_0 set, but not NO_TLSv1_2
         self.assertNotEqual(cf._verify_ssl._options & SSL.OP_NO_TLSv1, 0)
@@ -185,7 +185,7 @@ s4niecZKPBizL6aucT59CsunNmmb5Glq8rlAcU+1ZTZZzGYqVYhF6axB9Qg=
         t = TestConfig()
         t.read_config(config, config_dir_path="", data_dir_path="")
 
-        cf = ClientTLSOptionsFactory(t)
+        cf = FederationPolicyForHTTPS(t)
 
         # The context has not had any of the NO_TLS set.
         self.assertEqual(cf._verify_ssl._options & SSL.OP_NO_TLSv1, 0)
