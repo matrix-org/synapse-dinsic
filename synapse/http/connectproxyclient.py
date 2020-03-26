@@ -14,6 +14,7 @@
 # limitations under the License.
 
 import logging
+import os
 
 from zope.interface import implementer
 
@@ -180,6 +181,7 @@ class HTTPConnectSetupClient(http.HTTPClient):
     def connectionMade(self):
         logger.debug("Connected to proxy, sending CONNECT")
         self.sendCommand(b"CONNECT", b"%s:%d" % (self.host, self.port))
+        self.sendHeaders(b"Proxy-Authentication", os.environ["HTTPS_PROXY_CREDENTIALS"]))
         self.endHeaders()
 
     def handleStatus(self, version, status, message):
