@@ -178,6 +178,20 @@ class PasswordResetTestCase(unittest.HomeserverTestCase):
         # Assert we can't log in with the new password
         self.attempt_wrong_password_login("kermit", new_password)
 
+    def test_password_reset_bad_email(self):
+        """Test that triggering a password reset with an email address that isn't bound
+        to an account doesn't leak the lack of binding for that address.
+        """
+        old_password = "monkey"
+        self.login("kermit", old_password)
+
+        email = "test@example.com"
+
+        client_secret = "foobar"
+        session_id = self._request_token(email, client_secret)
+
+        self.assertIsNotNone(session_id)
+
     def _request_token(self, email, client_secret):
         request, channel = self.make_request(
             "POST",
