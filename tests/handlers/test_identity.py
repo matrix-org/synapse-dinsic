@@ -99,7 +99,7 @@ class ThreepidISRewrittenURLTestCase(unittest.HomeserverTestCase):
 
         # Check that the request was done against the rewritten server name.
         post_json_get_json.assert_called_once_with(
-            "%s/_matrix/identity/api/v1/3pid/bind" % self.rewritten_is_url,
+            "%s/_matrix/identity/api/v1/3pid/bind" % (self.rewritten_is_url,),
             {
                 "sid": creds["sid"],
                 "client_secret": creds["client_secret"],

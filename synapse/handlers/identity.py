@@ -463,7 +463,7 @@ class IdentityHandler(BaseHandler):
 
         try:
             data = yield self.http_client.post_json_get_json(
-                id_server_url + "/_matrix/identity/api/v1/validate/email/requestToken",
+                "%s/_matrix/identity/api/v1/validate/email/requestToken" % (id_server_url,),
                 params,
             )
             return data
@@ -856,7 +856,7 @@ class IdentityHandler(BaseHandler):
 
         try:
             lookup_results = yield self.http_client.post_json_get_json(
-                "%s/_matrix/identity/v2/lookup" % (id_server_url),
+                "%s/_matrix/identity/v2/lookup" % (id_server_url,),
                 {
                     "addresses": [lookup_value],
                     "algorithm": lookup_algorithm,
