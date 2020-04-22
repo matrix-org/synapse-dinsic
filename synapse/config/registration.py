@@ -437,11 +437,8 @@ class RegistrationConfig(Config):
         # provided by clients (which have https:// prepended) and those specified
         # in `account_threepid_delegates`. URLs should not feature a trailing slash.
         #
-        # Example:
-        # rewrite_identity_server_urls:
-        #   "https://somewhere.example.com": "https://somewhereelse.example.com"
-        #
         rewrite_identity_server_urls:
+        #   "https://somewhere.example.com": "https://somewhereelse.example.com"
         """
             % locals()
         )
