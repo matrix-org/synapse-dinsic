@@ -94,6 +94,24 @@ class AccountValidityHandler(object):
         # the user directory
         if self._account_validity.enabled:
             self.clock.looping_call(self._mark_expired_users_as_inactive, 60 * 60 * 1000)
+        else:
+            run_as_background_process(
+                "_mark_expired_users_as_active", self._mark_expired_users_as_active
+            )
+
+    def _mark_expired_users_as_active(self):
+        """Iterate over expired users. Mark them as active in order to show them from the
+        user directory.
+        Returns:
+            Deferred
+        """
+        # Get expired users
+        expired_user_ids = yield self.store.get_expired_users()
+        expired_users = [UserID.from_string(user_id) for user_id in expired_user_ids]
+
+        # Mark each one as active
+        for user in expired_users:
+            yield self.profile_handler.set_active(user, True, True)
 
     async def _send_renewal_emails(self):
         """Gets the list of users whose account is expiring in the amount of time
