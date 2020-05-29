@@ -295,6 +295,24 @@ class RoomWorkerStore(SQLBaseStore):
             desc="is_room_blocked",
         )
 
+    @defer.inlineCallbacks
+    def is_room_published(self, room_id):
+        """Check whether a room has been published in the local public room
+        directory.
+
+        Args:
+            room_id (str)
+        Returns:
+            bool: Whether the room is currently published in the room directory
+        """
+        # Get room information
+        room_info = yield self.get_room(room_id)
+        if not room_info:
+            defer.returnValue(False)
+
+        # Check the is_public value
+        defer.returnValue(room_info.get("is_public", False))
+
     async def get_rooms_paginate(
         self,
         start: int,
@@ -449,6 +467,11 @@ class RoomWorkerStore(SQLBaseStore):
         Returns:
             dict[int, int]: "min_lifetime" and "max_lifetime" for this room.
         """
+        # If the room retention feature is disabled, return a policy with no minimum nor
+        # maximum, in order not to filter out events we should filter out when sending to
+        # the client.
+        if not self.config.retention_enabled:
+            defer.returnValue({"min_lifetime": None, "max_lifetime": None})
 
         def get_retention_policy_for_room_txn(txn):
             txn.execute(

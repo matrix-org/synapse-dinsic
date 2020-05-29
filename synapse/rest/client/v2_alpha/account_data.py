@@ -17,6 +17,7 @@ import logging
 
 from synapse.api.errors import AuthError, NotFoundError, SynapseError
 from synapse.http.servlet import RestServlet, parse_json_object_from_request
+from synapse.types import UserID
 
 from ._base import client_patterns
 
@@ -38,13 +39,23 @@ class AccountDataServlet(RestServlet):
         self.auth = hs.get_auth()
         self.store = hs.get_datastore()
         self.notifier = hs.get_notifier()
+        self._is_worker = hs.config.worker_app is not None
+        self._profile_handler = hs.get_profile_handler()
 
     async def on_PUT(self, request, user_id, account_data_type):
+        if self._is_worker:
+            raise Exception("Cannot handle PUT /account_data on worker")
+
         requester = await self.auth.get_user_by_req(request)
         if user_id != requester.user.to_string():
             raise AuthError(403, "Cannot add account data for other users.")
 
         body = parse_json_object_from_request(request)
+
+        if account_data_type == "im.vector.hide_profile":
+            user = UserID.from_string(user_id)
+            hide_profile = body.get("hide_profile")
+            await self._profile_handler.set_active(user, not hide_profile, True)
 
         max_id = await self.store.add_account_data_for_user(
             user_id, account_data_type, body
@@ -86,8 +97,12 @@ class RoomAccountDataServlet(RestServlet):
         self.auth = hs.get_auth()
         self.store = hs.get_datastore()
         self.notifier = hs.get_notifier()
+        self._is_worker = hs.config.worker_app is not None
 
     async def on_PUT(self, request, user_id, room_id, account_data_type):
+        if self._is_worker:
+            raise Exception("Cannot handle PUT /account_data on worker")
+
         requester = await self.auth.get_user_by_req(request)
         if user_id != requester.user.to_string():
             raise AuthError(403, "Cannot add account data for other users.")

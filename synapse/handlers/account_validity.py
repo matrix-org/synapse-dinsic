@@ -20,6 +20,8 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from typing import List
 
+from twisted.internet import defer
+
 from synapse.api.errors import StoreError
 from synapse.logging.context import make_deferred_yieldable
 from synapse.metrics.background_process_metrics import run_as_background_process
@@ -43,6 +45,8 @@ class AccountValidityHandler(object):
         self.clock = self.hs.get_clock()
 
         self._account_validity = self.hs.config.account_validity
+        self._show_users_in_user_directory = self.hs.config.show_users_in_user_directory
+        self.profile_handler = self.hs.get_profile_handler()
 
         if (
             self._account_validity.enabled
@@ -85,6 +89,13 @@ class AccountValidityHandler(object):
                 )
 
             self.clock.looping_call(send_emails, 30 * 60 * 1000)
+
+        # If account_validity is enabled,check every hour to remove expired users from
+        # the user directory
+        if self._account_validity.enabled:
+            self.clock.looping_call(
+                self._mark_expired_users_as_inactive, 60 * 60 * 1000
+            )
 
     async def _send_renewal_emails(self):
         """Gets the list of users whose account is expiring in the amount of time
@@ -266,4 +277,27 @@ class AccountValidityHandler(object):
             user_id=user_id, expiration_ts=expiration_ts, email_sent=email_sent
         )
 
+        # Check if renewed users should be reintroduced to the user directory
+        if self._show_users_in_user_directory:
+            # Show the user in the directory again by setting them to active
+            await self.profile_handler.set_active(
+                UserID.from_string(user_id), True, True
+            )
+
         return expiration_ts
+
+    @defer.inlineCallbacks
+    def _mark_expired_users_as_inactive(self):
+        """Iterate over expired users. Mark them as inactive in order to hide them from the
+        user directory.
+
+        Returns:
+            Deferred
+        """
+        # Get expired users
+        expired_user_ids = yield self.store.get_expired_users()
+        expired_users = [UserID.from_string(user_id) for user_id in expired_user_ids]
+
+        # Mark each one as non-active
+        for user in expired_users:
+            yield self.profile_handler.set_active(user, False, True)

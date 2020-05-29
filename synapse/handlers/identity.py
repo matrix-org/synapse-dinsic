@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 # Copyright 2015, 2016 OpenMarket Ltd
 # Copyright 2017 Vector Creations Ltd
-# Copyright 2018 New Vector Ltd
+# Copyright 2018, 2019 New Vector Ltd
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -33,6 +33,7 @@ from synapse.api.errors import (
     CodeMessageException,
     Codes,
     HttpResponseException,
+    ProxiedRequestError,
     SynapseError,
 )
 from synapse.config.emailconfig import ThreepidBehaviour
@@ -44,30 +45,35 @@ from ._base import BaseHandler
 
 logger = logging.getLogger(__name__)
 
-id_server_scheme = "https://"
-
 
 class IdentityHandler(BaseHandler):
     def __init__(self, hs):
         super(IdentityHandler, self).__init__(hs)
 
-        self.http_client = SimpleHttpClient(hs)
+        self.hs = hs
+        self.http_client = hs.get_simple_http_client()
         # We create a blacklisting instance of SimpleHttpClient for contacting identity
         # servers specified by clients
         self.blacklisting_http_client = SimpleHttpClient(
             hs, ip_blacklist=hs.config.federation_ip_range_blacklist
         )
         self.federation_http_client = hs.get_http_client()
-        self.hs = hs
+
+        self.trusted_id_servers = set(hs.config.trusted_third_party_id_servers)
+        self.trust_any_id_server_just_for_testing_do_not_use = (
+            hs.config.use_insecure_ssl_client_just_for_testing_do_not_use
+        )
+        self.rewrite_identity_server_urls = hs.config.rewrite_identity_server_urls
+        self._enable_lookup = hs.config.enable_3pid_lookup
 
     @defer.inlineCallbacks
-    def threepid_from_creds(self, id_server, creds):
+    def threepid_from_creds(self, id_server_url, creds):
         """
         Retrieve and validate a threepid identifier from a "credentials" dictionary against a
         given identity server
 
         Args:
-            id_server (str): The identity server to validate 3PIDs against. Must be a
+            id_server_url (str): The identity server to validate 3PIDs against. Must be a
                 complete URL including the protocol (http(s)://)
 
             creds (dict[str, str]): Dictionary containing the following keys:
@@ -94,7 +100,14 @@ class IdentityHandler(BaseHandler):
 
         query_params = {"sid": session_id, "client_secret": client_secret}
 
-        url = id_server + "/_matrix/identity/api/v1/3pid/getValidated3pid"
+        # if we have a rewrite rule set for the identity server,
+        # apply it now.
+        id_server_url = self.rewrite_id_server_url(id_server_url)
+
+        url = "%s%s" % (
+            id_server_url,
+            "/_matrix/identity/api/v1/3pid/getValidated3pid",
+        )
 
         try:
             data = yield self.http_client.get_json(url, query_params)
@@ -103,7 +116,7 @@ class IdentityHandler(BaseHandler):
         except HttpResponseException as e:
             logger.info(
                 "%s returned %i for threepid validation for: %s",
-                id_server,
+                id_server_url,
                 e.code,
                 creds,
             )
@@ -117,7 +130,7 @@ class IdentityHandler(BaseHandler):
         if "medium" in data:
             return data
 
-        logger.info("%s reported non-validated threepid: %s", id_server, creds)
+        logger.info("%s reported non-validated threepid: %s", id_server_url, creds)
         return None
 
     @defer.inlineCallbacks
@@ -149,14 +162,19 @@ class IdentityHandler(BaseHandler):
         if id_access_token is None:
             use_v2 = False
 
+        # if we have a rewrite rule set for the identity server,
+        # apply it now, but only for sending the request (not
+        # storing in the database).
+        id_server_url = self.rewrite_id_server_url(id_server, add_https=True)
+
         # Decide which API endpoint URLs to use
         headers = {}
         bind_data = {"sid": sid, "client_secret": client_secret, "mxid": mxid}
         if use_v2:
-            bind_url = "https://%s/_matrix/identity/v2/3pid/bind" % (id_server,)
+            bind_url = "%s/_matrix/identity/v2/3pid/bind" % (id_server_url,)
             headers["Authorization"] = create_id_access_token_header(id_access_token)
         else:
-            bind_url = "https://%s/_matrix/identity/api/v1/3pid/bind" % (id_server,)
+            bind_url = "%s/_matrix/identity/api/v1/3pid/bind" % (id_server_url,)
 
         try:
             # Use the blacklisting http client as this call is only to identity servers
@@ -243,9 +261,6 @@ class IdentityHandler(BaseHandler):
             Deferred[bool]: True on success, otherwise False if the identity
             server doesn't support unbinding
         """
-        url = "https://%s/_matrix/identity/api/v1/3pid/unbind" % (id_server,)
-        url_bytes = "/_matrix/identity/api/v1/3pid/unbind".encode("ascii")
-
         content = {
             "mxid": mxid,
             "threepid": {"medium": threepid["medium"], "address": threepid["address"]},
@@ -254,6 +269,7 @@ class IdentityHandler(BaseHandler):
         # we abuse the federation http client to sign the request, but we have to send it
         # using the normal http client since we don't want the SRV lookup and want normal
         # 'browser-like' HTTPS.
+        url_bytes = "/_matrix/identity/api/v1/3pid/unbind".encode("ascii")
         auth_headers = self.federation_http_client.build_auth_headers(
             destination=None,
             method="POST",
@@ -262,6 +278,15 @@ class IdentityHandler(BaseHandler):
             destination_is=id_server,
         )
         headers = {b"Authorization": auth_headers}
+
+        # if we have a rewrite rule set for the identity server,
+        # apply it now.
+        #
+        # Note that destination_is has to be the real id_server, not
+        # the server we connect to.
+        id_server_url = self.rewrite_id_server_url(id_server, add_https=True)
+
+        url = "%s/_matrix/identity/api/v1/3pid/unbind" % (id_server_url,)
 
         try:
             # Use the blacklisting http client as this call is only to identity servers
@@ -377,16 +402,35 @@ class IdentityHandler(BaseHandler):
 
         return session_id
 
+    def rewrite_id_server_url(self, url: str, add_https=False) -> str:
+        """Given an identity server URL, optionally add a protocol scheme
+        before rewriting it according to the rewrite_identity_server_urls
+        config option
+
+        Adds https:// to the URL if specified, then tries to rewrite the
+        url. Returns either the rewritten URL or the URL with optional
+        protocol scheme additions.
+        """
+        rewritten_url = url
+        if add_https:
+            rewritten_url = "https://" + rewritten_url
+
+        rewritten_url = self.rewrite_identity_server_urls.get(
+            rewritten_url, rewritten_url
+        )
+        logger.debug("Rewriting identity server rule from %s to %s", url, rewritten_url)
+        return rewritten_url
+
     @defer.inlineCallbacks
     def requestEmailToken(
-        self, id_server, email, client_secret, send_attempt, next_link=None
+        self, id_server_url, email, client_secret, send_attempt, next_link=None
     ):
         """
         Request an external server send an email on our behalf for the purposes of threepid
         validation.
 
         Args:
-            id_server (str): The identity server to proxy to
+            id_server_url (str): The identity server to proxy to
             email (str): The email to send the message to
             client_secret (str): The unique client_secret sends by the user
             send_attempt (int): Which attempt this is
@@ -400,6 +444,11 @@ class IdentityHandler(BaseHandler):
             "client_secret": client_secret,
             "send_attempt": send_attempt,
         }
+
+        # if we have a rewrite rule set for the identity server,
+        # apply it now.
+        id_server_url = self.rewrite_id_server_url(id_server_url)
+
         if next_link:
             params["next_link"] = next_link
 
@@ -414,7 +463,8 @@ class IdentityHandler(BaseHandler):
 
         try:
             data = yield self.http_client.post_json_get_json(
-                id_server + "/_matrix/identity/api/v1/validate/email/requestToken",
+                "%s/_matrix/identity/api/v1/validate/email/requestToken"
+                % (id_server_url,),
                 params,
             )
             return data
@@ -427,7 +477,7 @@ class IdentityHandler(BaseHandler):
     @defer.inlineCallbacks
     def requestMsisdnToken(
         self,
-        id_server,
+        id_server_url,
         country,
         phone_number,
         client_secret,
@@ -438,7 +488,7 @@ class IdentityHandler(BaseHandler):
         Request an external server send an SMS message on our behalf for the purposes of
         threepid validation.
         Args:
-            id_server (str): The identity server to proxy to
+            id_server_url (str): The identity server to proxy to
             country (str): The country code of the phone number
             phone_number (str): The number to send the message to
             client_secret (str): The unique client_secret sends by the user
@@ -466,9 +516,13 @@ class IdentityHandler(BaseHandler):
                 "details and update your config file."
             )
 
+        # if we have a rewrite rule set for the identity server,
+        # apply it now.
+        id_server_url = self.rewrite_id_server_url(id_server_url)
         try:
             data = yield self.http_client.post_json_get_json(
-                id_server + "/_matrix/identity/api/v1/validate/msisdn/requestToken",
+                "%s/_matrix/identity/api/v1/validate/msisdn/requestToken"
+                % (id_server_url,),
                 params,
             )
         except HttpResponseException as e:
@@ -566,6 +620,89 @@ class IdentityHandler(BaseHandler):
             logger.warning("Error contacting msisdn account_threepid_delegate: %s", e)
             raise SynapseError(400, "Error contacting the identity server")
 
+    # TODO: The following two methods are used for proxying IS requests using
+    # the CS API. They should be consolidated with those in RoomMemberHandler
+    # https://github.com/matrix-org/synapse-dinsic/issues/25
+
+    @defer.inlineCallbacks
+    def proxy_lookup_3pid(self, id_server, medium, address):
+        """Looks up a 3pid in the passed identity server.
+
+        Args:
+            id_server (str): The server name (including port, if required)
+                of the identity server to use.
+            medium (str): The type of the third party identifier (e.g. "email").
+            address (str): The third party identifier (e.g. "foo@example.com").
+
+        Returns:
+            Deferred[dict]: The result of the lookup. See
+            https://matrix.org/docs/spec/identity_service/r0.1.0.html#association-lookup
+            for details
+        """
+        if not self._enable_lookup:
+            raise AuthError(
+                403, "Looking up third-party identifiers is denied from this server"
+            )
+
+        id_server_url = self.rewrite_id_server_url(id_server, add_https=True)
+
+        try:
+            data = yield self.http_client.get_json(
+                "%s/_matrix/identity/api/v1/lookup" % (id_server_url,),
+                {"medium": medium, "address": address},
+            )
+
+            if "mxid" in data:
+                if "signatures" not in data:
+                    raise AuthError(401, "No signatures on 3pid binding")
+                yield self._verify_any_signature(data, id_server)
+
+        except HttpResponseException as e:
+            logger.info("Proxied lookup failed: %r", e)
+            raise e.to_synapse_error()
+        except IOError as e:
+            logger.info("Failed to contact %s: %s", id_server, e)
+            raise ProxiedRequestError(503, "Failed to contact identity server")
+
+        defer.returnValue(data)
+
+    @defer.inlineCallbacks
+    def proxy_bulk_lookup_3pid(self, id_server, threepids):
+        """Looks up given 3pids in the passed identity server.
+
+        Args:
+            id_server (str): The server name (including port, if required)
+                of the identity server to use.
+            threepids ([[str, str]]): The third party identifiers to lookup, as
+                a list of 2-string sized lists ([medium, address]).
+
+        Returns:
+            Deferred[dict]: The result of the lookup. See
+            https://matrix.org/docs/spec/identity_service/r0.1.0.html#association-lookup
+            for details
+        """
+        if not self._enable_lookup:
+            raise AuthError(
+                403, "Looking up third-party identifiers is denied from this server"
+            )
+
+        id_server_url = self.rewrite_id_server_url(id_server, add_https=True)
+
+        try:
+            data = yield self.http_client.post_json_get_json(
+                "%s/_matrix/identity/api/v1/bulk_lookup" % (id_server_url,),
+                {"threepids": threepids},
+            )
+
+        except HttpResponseException as e:
+            logger.info("Proxied lookup failed: %r", e)
+            raise e.to_synapse_error()
+        except IOError as e:
+            logger.info("Failed to contact %s: %s", id_server, e)
+            raise ProxiedRequestError(503, "Failed to contact identity server")
+
+        defer.returnValue(data)
+
     @defer.inlineCallbacks
     def lookup_3pid(self, id_server, medium, address, id_access_token=None):
         """Looks up a 3pid in the passed identity server.
@@ -581,10 +718,13 @@ class IdentityHandler(BaseHandler):
         Returns:
             str|None: the matrix ID of the 3pid, or None if it is not recognized.
         """
+        # Rewrite id_server URL if necessary
+        id_server_url = self.rewrite_id_server_url(id_server, add_https=True)
+
         if id_access_token is not None:
             try:
                 results = yield self._lookup_3pid_v2(
-                    id_server, id_access_token, medium, address
+                    id_server_url, id_access_token, medium, address
                 )
                 return results
 
@@ -602,15 +742,16 @@ class IdentityHandler(BaseHandler):
                     logger.warning("Error when looking up hashing details: %s", e)
                     return None
 
-        return (yield self._lookup_3pid_v1(id_server, medium, address))
+        return (yield self._lookup_3pid_v1(id_server, id_server_url, medium, address))
 
     @defer.inlineCallbacks
-    def _lookup_3pid_v1(self, id_server, medium, address):
+    def _lookup_3pid_v1(self, id_server, id_server_url, medium, address):
         """Looks up a 3pid in the passed identity server using v1 lookup.
 
         Args:
             id_server (str): The server name (including port, if required)
                 of the identity server to use.
+            id_server_url (str): The actual, reachable domain of the id server
             medium (str): The type of the third party identifier (e.g. "email").
             address (str): The third party identifier (e.g. "foo@example.com").
 
@@ -618,8 +759,8 @@ class IdentityHandler(BaseHandler):
             str: the matrix ID of the 3pid, or None if it is not recognized.
         """
         try:
-            data = yield self.blacklisting_http_client.get_json(
-                "%s%s/_matrix/identity/api/v1/lookup" % (id_server_scheme, id_server),
+            data = yield self.http_client.get_json(
+                "%s/_matrix/identity/api/v1/lookup" % (id_server_url,),
                 {"medium": medium, "address": address},
             )
 
@@ -636,12 +777,11 @@ class IdentityHandler(BaseHandler):
         return None
 
     @defer.inlineCallbacks
-    def _lookup_3pid_v2(self, id_server, id_access_token, medium, address):
+    def _lookup_3pid_v2(self, id_server_url, id_access_token, medium, address):
         """Looks up a 3pid in the passed identity server using v2 lookup.
 
         Args:
-            id_server (str): The server name (including port, if required)
-                of the identity server to use.
+            id_server_url (str): The protocol scheme and domain of the id server
             id_access_token (str): The access token to authenticate to the identity server with
             medium (str): The type of the third party identifier (e.g. "email").
             address (str): The third party identifier (e.g. "foo@example.com").
@@ -651,8 +791,8 @@ class IdentityHandler(BaseHandler):
         """
         # Check what hashing details are supported by this identity server
         try:
-            hash_details = yield self.blacklisting_http_client.get_json(
-                "%s%s/_matrix/identity/v2/hash_details" % (id_server_scheme, id_server),
+            hash_details = yield self.http_client.get_json(
+                "%s/_matrix/identity/v2/hash_details" % (id_server_url,),
                 {"access_token": id_access_token},
             )
         except TimeoutError:
@@ -660,15 +800,14 @@ class IdentityHandler(BaseHandler):
 
         if not isinstance(hash_details, dict):
             logger.warning(
-                "Got non-dict object when checking hash details of %s%s: %s",
-                id_server_scheme,
-                id_server,
+                "Got non-dict object when checking hash details of %s: %s",
+                id_server_url,
                 hash_details,
             )
             raise SynapseError(
                 400,
-                "Non-dict object from %s%s during v2 hash_details request: %s"
-                % (id_server_scheme, id_server, hash_details),
+                "Non-dict object from %s during v2 hash_details request: %s"
+                % (id_server_url, hash_details),
             )
 
         # Extract information from hash_details
@@ -682,8 +821,8 @@ class IdentityHandler(BaseHandler):
         ):
             raise SynapseError(
                 400,
-                "Invalid hash details received from identity server %s%s: %s"
-                % (id_server_scheme, id_server, hash_details),
+                "Invalid hash details received from identity server %s: %s"
+                % (id_server_url, hash_details),
             )
 
         # Check if any of the supported lookup algorithms are present
@@ -705,7 +844,7 @@ class IdentityHandler(BaseHandler):
         else:
             logger.warning(
                 "None of the provided lookup algorithms of %s are supported: %s",
-                id_server,
+                id_server_url,
                 supported_lookup_algorithms,
             )
             raise SynapseError(
@@ -718,8 +857,8 @@ class IdentityHandler(BaseHandler):
         headers = {"Authorization": create_id_access_token_header(id_access_token)}
 
         try:
-            lookup_results = yield self.blacklisting_http_client.post_json_get_json(
-                "%s%s/_matrix/identity/v2/lookup" % (id_server_scheme, id_server),
+            lookup_results = yield self.http_client.post_json_get_json(
+                "%s/_matrix/identity/v2/lookup" % (id_server_url,),
                 {
                     "addresses": [lookup_value],
                     "algorithm": lookup_algorithm,
@@ -747,29 +886,30 @@ class IdentityHandler(BaseHandler):
         return mxid
 
     @defer.inlineCallbacks
-    def _verify_any_signature(self, data, server_hostname):
-        if server_hostname not in data["signatures"]:
-            raise AuthError(401, "No signature from server %s" % (server_hostname,))
-        for key_name, signature in data["signatures"][server_hostname].items():
-            try:
-                key_data = yield self.blacklisting_http_client.get_json(
-                    "%s%s/_matrix/identity/api/v1/pubkey/%s"
-                    % (id_server_scheme, server_hostname, key_name)
-                )
-            except TimeoutError:
-                raise SynapseError(500, "Timed out contacting identity server")
+    def _verify_any_signature(self, data, id_server):
+        if id_server not in data["signatures"]:
+            raise AuthError(401, "No signature from server %s" % (id_server,))
+
+        for key_name, signature in data["signatures"][id_server].items():
+            id_server_url = self.rewrite_id_server_url(id_server, add_https=True)
+
+            key_data = yield self.http_client.get_json(
+                "%s/_matrix/identity/api/v1/pubkey/%s" % (id_server_url, key_name)
+            )
             if "public_key" not in key_data:
                 raise AuthError(
-                    401, "No public key named %s from %s" % (key_name, server_hostname)
+                    401, "No public key named %s from %s" % (key_name, id_server)
                 )
             verify_signed_json(
                 data,
-                server_hostname,
+                id_server,
                 decode_verify_key_bytes(
                     key_name, decode_base64(key_data["public_key"])
                 ),
             )
             return
+
+        raise AuthError(401, "No signature from server %s" % (id_server,))
 
     @defer.inlineCallbacks
     def ask_id_server_for_third_party_invite(
@@ -831,15 +971,17 @@ class IdentityHandler(BaseHandler):
             "sender_avatar_url": inviter_avatar_url,
         }
 
+        # Rewrite the identity server URL if necessary
+        id_server_url = self.rewrite_id_server_url(id_server, add_https=True)
+
         # Add the identity service access token to the JSON body and use the v2
         # Identity Service endpoints if id_access_token is present
         data = None
-        base_url = "%s%s/_matrix/identity" % (id_server_scheme, id_server)
+        base_url = "%s/_matrix/identity" % (id_server_url,)
 
         if id_access_token:
-            key_validity_url = "%s%s/_matrix/identity/v2/pubkey/isvalid" % (
-                id_server_scheme,
-                id_server,
+            key_validity_url = "%s/_matrix/identity/v2/pubkey/isvalid" % (
+                id_server_url,
             )
 
             # Attempt a v2 lookup
@@ -858,9 +1000,8 @@ class IdentityHandler(BaseHandler):
                     raise e
 
         if data is None:
-            key_validity_url = "%s%s/_matrix/identity/api/v1/pubkey/isvalid" % (
-                id_server_scheme,
-                id_server,
+            key_validity_url = "%s/_matrix/identity/api/v1/pubkey/isvalid" % (
+                id_server_url,
             )
             url = base_url + "/api/v1/store-invite"
 
@@ -872,10 +1013,7 @@ class IdentityHandler(BaseHandler):
                 raise SynapseError(500, "Timed out contacting identity server")
             except HttpResponseException as e:
                 logger.warning(
-                    "Error trying to call /store-invite on %s%s: %s",
-                    id_server_scheme,
-                    id_server,
-                    e,
+                    "Error trying to call /store-invite on %s: %s", id_server_url, e,
                 )
 
             if data is None:
@@ -888,10 +1026,9 @@ class IdentityHandler(BaseHandler):
                     )
                 except HttpResponseException as e:
                     logger.warning(
-                        "Error calling /store-invite on %s%s with fallback "
+                        "Error calling /store-invite on %s with fallback "
                         "encoding: %s",
-                        id_server_scheme,
-                        id_server,
+                        id_server_url,
                         e,
                     )
                     raise e

@@ -64,6 +64,7 @@ class RoomCreationHandler(BaseHandler):
             "history_visibility": "shared",
             "original_invitees_have_ops": False,
             "guest_can_join": True,
+            "encryption_alg": "m.megolm.v1.aes-sha2",
             "power_level_content_override": {"invite": 0},
         },
         RoomCreationPreset.TRUSTED_PRIVATE_CHAT: {
@@ -71,6 +72,7 @@ class RoomCreationHandler(BaseHandler):
             "history_visibility": "shared",
             "original_invitees_have_ops": True,
             "guest_can_join": True,
+            "encryption_alg": "m.megolm.v1.aes-sha2",
             "power_level_content_override": {"invite": 0},
         },
         RoomCreationPreset.PUBLIC_CHAT: {
@@ -327,7 +329,19 @@ class RoomCreationHandler(BaseHandler):
         """
         user_id = requester.user.to_string()
 
-        if not self.spam_checker.user_may_create_room(user_id):
+        if (
+            self._server_notices_mxid is not None
+            and requester.user.to_string() == self._server_notices_mxid
+        ):
+            # allow the server notices mxid to create rooms
+            is_requester_admin = True
+
+        else:
+            is_requester_admin = yield self.auth.is_server_admin(requester.user)
+
+        if not is_requester_admin and not self.spam_checker.user_may_create_room(
+            user_id, invite_list=[], third_party_invite_list=[], cloning=True
+        ):
             raise SynapseError(403, "You are not permitted to create rooms")
 
         creation_content = {
@@ -568,8 +582,14 @@ class RoomCreationHandler(BaseHandler):
                 403, "You are not permitted to create rooms", Codes.FORBIDDEN
             )
 
+        invite_list = config.get("invite", [])
+        invite_3pid_list = config.get("invite_3pid", [])
+
         if not is_requester_admin and not self.spam_checker.user_may_create_room(
-            user_id
+            user_id,
+            invite_list=invite_list,
+            third_party_invite_list=invite_3pid_list,
+            cloning=False,
         ):
             raise SynapseError(403, "You are not permitted to create rooms")
 
@@ -604,7 +624,6 @@ class RoomCreationHandler(BaseHandler):
         else:
             room_alias = None
 
-        invite_list = config.get("invite", [])
         for i in invite_list:
             try:
                 uid = UserID.from_string(i)
@@ -625,8 +644,6 @@ class RoomCreationHandler(BaseHandler):
                 "Not a valid power_level_content_override: 'users' did not contain %s"
                 % (user_id,),
             )
-
-        invite_3pid_list = config.get("invite_3pid", [])
 
         visibility = config.get("visibility", None)
         is_public = visibility == "public"
@@ -716,6 +733,7 @@ class RoomCreationHandler(BaseHandler):
                 "invite",
                 ratelimit=False,
                 content=content,
+                new_room=True,
             )
 
         for invite_3pid in invite_3pid_list:
@@ -731,6 +749,7 @@ class RoomCreationHandler(BaseHandler):
                 id_server,
                 requester,
                 txn_id=None,
+                new_room=True,
                 id_access_token=id_access_token,
             )
 
@@ -787,6 +806,7 @@ class RoomCreationHandler(BaseHandler):
             "join",
             ratelimit=False,
             content=creator_join_profile,
+            new_room=True,
         )
 
         # We treat the power levels override specially as this needs to be one
@@ -852,6 +872,13 @@ class RoomCreationHandler(BaseHandler):
 
         for (etype, state_key), content in initial_state.items():
             yield send(etype=etype, state_key=state_key, content=content)
+
+        if "encryption_alg" in config:
+            yield send(
+                etype=EventTypes.RoomEncryption,
+                state_key="",
+                content={"algorithm": config["encryption_alg"]},
+            )
 
     @defer.inlineCallbacks
     def _generate_room_id(

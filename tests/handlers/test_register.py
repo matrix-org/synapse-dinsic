@@ -20,6 +20,7 @@ from twisted.internet import defer
 from synapse.api.constants import UserTypes
 from synapse.api.errors import Codes, ResourceLimitError, SynapseError
 from synapse.handlers.register import RegistrationHandler
+from synapse.rest.client.v2_alpha.register import _map_email_to_displayname
 from synapse.types import RoomAlias, UserID, create_requester
 
 from .. import unittest
@@ -255,6 +256,26 @@ class RegistrationTestCase(unittest.HomeserverTestCase):
         self.get_failure(
             self.handler.register_user(localpart=invalid_user_id), SynapseError
         )
+
+    def test_email_to_displayname_mapping(self):
+        """Test that custom emails are mapped to new user displaynames correctly"""
+        self._check_mapping(
+            "jack-phillips.rivers@big-org.com", "Jack-Phillips Rivers [Big-Org]"
+        )
+
+        self._check_mapping("bob.jones@matrix.org", "Bob Jones [Tchap Admin]")
+
+        self._check_mapping("bob-jones.blabla@gouv.fr", "Bob-Jones Blabla [Gouv]")
+
+        # Multibyte unicode characters
+        self._check_mapping(
+            "j\u030a\u0065an-poppy.seed@example.com",
+            "J\u030a\u0065an-Poppy Seed [Example]",
+        )
+
+    def _check_mapping(self, i, expected):
+        result = _map_email_to_displayname(i)
+        self.assertEqual(result, expected)
 
     @defer.inlineCallbacks
     def get_or_create_user(self, requester, localpart, displayname, password_hash=None):

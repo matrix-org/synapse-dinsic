@@ -66,6 +66,7 @@ from synapse.handlers.groups_local import GroupsLocalHandler, GroupsLocalWorkerH
 from synapse.handlers.initial_sync import InitialSyncHandler
 from synapse.handlers.message import EventCreationHandler, MessageHandler
 from synapse.handlers.pagination import PaginationHandler
+from synapse.handlers.password_policy import PasswordPolicyHandler
 from synapse.handlers.presence import PresenceHandler
 from synapse.handlers.profile import BaseProfileHandler, MasterProfileHandler
 from synapse.handlers.read_marker import ReadMarkerHandler
@@ -167,6 +168,7 @@ class HomeServer(object):
         "event_builder_factory",
         "filtering",
         "http_client_context_factory",
+        "proxied_http_client",
         "simple_http_client",
         "proxied_http_client",
         "media_repository",
@@ -199,6 +201,7 @@ class HomeServer(object):
         "saml_handler",
         "event_client_serializer",
         "storage",
+        "password_policy_handler",
     ]
 
     REQUIRED_ON_MASTER_STARTUP = ["user_directory_handler", "stats_handler"]
@@ -535,6 +538,9 @@ class HomeServer(object):
 
     def build_storage(self) -> Storage:
         return Storage(self, self.datastores)
+
+    def build_password_policy_handler(self):
+        return PasswordPolicyHandler(self)
 
     def remove_pusher(self, app_id, push_key, user_id):
         return self.get_pusherpool().remove_pusher(app_id, push_key, user_id)

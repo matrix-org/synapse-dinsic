@@ -15,7 +15,7 @@
 # limitations under the License.
 
 import inspect
-from typing import Dict
+from typing import Dict, List, Optional
 
 from synapse.spam_checker_api import SpamCheckerApi
 
@@ -64,16 +64,32 @@ class SpamChecker(object):
         return self.spam_checker.check_event_for_spam(event)
 
     def user_may_invite(
-        self, inviter_userid: str, invitee_userid: str, room_id: str
+        self,
+        inviter_userid: str,
+        invitee_userid: str,
+        third_party_invite: Optional[Dict],
+        room_id: str,
+        new_room: bool,
+        published_room: bool,
     ) -> bool:
         """Checks if a given user may send an invite
 
         If this method returns false, the invite will be rejected.
 
         Args:
-            inviter_userid: The user ID of the sender of the invitation
-            invitee_userid: The user ID targeted in the invitation
-            room_id: The room ID
+            inviter_userid:
+            invitee_userid: The user ID of the invitee. Is None
+                if this is a third party invite and the 3PID is not bound to a
+                user ID.
+            third_party_invite: If a third party invite then is a
+                dict containing the medium and address of the invitee.
+            room_id:
+            new_room: Whether the user is being invited to the room as
+                part of a room creation, if so the invitee would have been
+                included in the call to `user_may_create_room`.
+            published_room: Whether the room the user is being invited
+                to has been published in the local homeserver's public room
+                directory.
 
         Returns:
             True if the user may send an invite, otherwise False
@@ -82,16 +98,33 @@ class SpamChecker(object):
             return True
 
         return self.spam_checker.user_may_invite(
-            inviter_userid, invitee_userid, room_id
+            inviter_userid,
+            invitee_userid,
+            third_party_invite,
+            room_id,
+            new_room,
+            published_room,
         )
 
-    def user_may_create_room(self, userid: str) -> bool:
+    def user_may_create_room(
+        self,
+        userid: str,
+        invite_list: List[str],
+        third_party_invite_list: List[Dict],
+        cloning: bool,
+    ) -> bool:
         """Checks if a given user may create a room
 
         If this method returns false, the creation request will be rejected.
 
         Args:
             userid: The ID of the user attempting to create a room
+            invite_list: List of user IDs that would be invited to
+                the new room.
+            third_party_invite_list: List of third party invites
+                for the new room.
+            cloning: Whether the user is cloning an existing room, e.g.
+                upgrading a room.
 
         Returns:
             True if the user may create a room, otherwise False
@@ -99,7 +132,9 @@ class SpamChecker(object):
         if self.spam_checker is None:
             return True
 
-        return self.spam_checker.user_may_create_room(userid)
+        return self.spam_checker.user_may_create_room(
+            userid, invite_list, third_party_invite_list, cloning
+        )
 
     def user_may_create_room_alias(self, userid: str, room_alias: str) -> bool:
         """Checks if a given user may create a room alias
@@ -134,6 +169,24 @@ class SpamChecker(object):
             return True
 
         return self.spam_checker.user_may_publish_room(userid, room_id)
+
+    def user_may_join_room(self, userid, room_id, is_invited):
+        """Checks if a given users is allowed to join a room.
+
+        Is not called when the user creates a room.
+
+        Args:
+            userid (str)
+            room_id (str)
+            is_invited (bool): Whether the user is invited into the room
+
+        Returns:
+            bool: Whether the user may join the room
+        """
+        if self.spam_checker is None:
+            return True
+
+        return self.spam_checker.user_may_join_room(userid, room_id, is_invited)
 
     def check_username_for_spam(self, user_profile: Dict[str, str]) -> bool:
         """Checks if a user ID or display name are considered "spammy" by this server.

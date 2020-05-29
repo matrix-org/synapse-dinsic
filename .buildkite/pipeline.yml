@@ -1,0 +1,496 @@
+env:
+  COVERALLS_REPO_TOKEN: wsJWOby6j0uCYFiCes3r0XauxO27mx8lD
+
+steps:
+  - label: "\U0001F9F9 Check Style"
+    command:
+      - "python -m pip install tox"
+      - "tox -e check_codestyle"
+    plugins:
+      - docker#v3.0.1:
+          image: "python:3.6"
+          mount-buildkite-agent: false
+
+  - label: "\U0001F9F9 packaging"
+    command:
+      - "python -m pip install tox"
+      - "tox -e packaging"
+    plugins:
+      - docker#v3.0.1:
+          image: "python:3.6"
+          mount-buildkite-agent: false
+
+  - label: "\U0001F9F9 isort"
+    command:
+      - "python -m pip install tox"
+      - "tox -e check_isort"
+    plugins:
+      - docker#v3.0.1:
+          image: "python:3.6"
+          mount-buildkite-agent: false
+
+  - label: ":newspaper: Newsfile"
+    command:
+      - "python -m pip install tox"
+      - "scripts-dev/check-newsfragment"
+    branches: "!master !develop !release-*"
+    plugins:
+      - docker#v3.0.1:
+          image: "python:3.6"
+          propagate-environment: true
+          mount-buildkite-agent: false
+
+  - label: "\U0001F9F9 check-sample-config"
+    command:
+      - "python -m pip install tox"
+      - "tox -e check-sampleconfig"
+    plugins:
+      - docker#v3.0.1:
+          image: "python:3.6"
+          mount-buildkite-agent: false
+
+  - label: ":mypy: mypy"
+    command:
+      - "python -m pip install tox"
+      - "tox -e mypy"
+    plugins:
+      - docker#v3.0.1:
+          image: "python:3.7"
+          mount-buildkite-agent: false
+
+  - wait
+
+  ################################################################################
+  #
+  # `trial` tests
+  #
+  ################################################################################
+
+  - label: ":python: 3.5 / SQLite / Old Deps"
+    command:
+      - ".buildkite/scripts/test_old_deps.sh"
+    env:
+      TRIAL_FLAGS: "-j 2"
+    plugins:
+      - docker#v3.0.1:
+          image: "ubuntu:xenial"  # We use xenial to get an old sqlite and python
+          workdir: "/src"
+          mount-buildkite-agent: false
+          propagate-environment: true
+      - artifacts#v1.2.0:
+          upload: [ "_trial_temp/*/*.log" ]
+#      - matrix-org/coveralls#v1.0:
+#          parallel: "true"
+    retry:
+      automatic:
+        - exit_status: -1
+          limit: 2
+        - exit_status: 2
+          limit: 2
+
+  - label: ":python: 3.5 / SQLite"
+    command:
+      - "python -m pip install tox"
+      - "tox -e py35,combine"
+    env:
+      TRIAL_FLAGS: "-j 2"
+    plugins:
+      - docker#v3.0.1:
+          image: "python:3.5"
+          workdir: "/src"
+          mount-buildkite-agent: false
+          propagate-environment: true
+      - artifacts#v1.2.0:
+          upload: [ "_trial_temp/*/*.log" ]
+#      - matrix-org/coveralls#v1.0:
+#          parallel: "true"
+    retry:
+      automatic:
+        - exit_status: -1
+          limit: 2
+        - exit_status: 2
+          limit: 2
+
+  - label: ":python: 3.6 / SQLite"
+    command:
+      - "python -m pip install tox"
+      - "tox -e py36,combine"
+    env:
+      TRIAL_FLAGS: "-j 2"
+    plugins:
+      - docker#v3.0.1:
+          image: "python:3.6"
+          workdir: "/src"
+          mount-buildkite-agent: false
+          propagate-environment: true
+      - artifacts#v1.2.0:
+          upload: [ "_trial_temp/*/*.log" ]
+#      - matrix-org/coveralls#v1.0:
+#          parallel: "true"
+    retry:
+      automatic:
+        - exit_status: -1
+          limit: 2
+        - exit_status: 2
+          limit: 2
+
+  - label: ":python: 3.7 / SQLite"
+    command:
+      - "python -m pip install tox"
+      - "tox -e py37,combine"
+    env:
+      TRIAL_FLAGS: "-j 2"
+    plugins:
+      - docker#v3.0.1:
+          image: "python:3.7"
+          workdir: "/src"
+          mount-buildkite-agent: false
+          propagate-environment: true
+      - artifacts#v1.2.0:
+          upload: [ "_trial_temp/*/*.log" ]
+#      - matrix-org/coveralls#v1.0:
+#          parallel: "true"
+    retry:
+      automatic:
+        - exit_status: -1
+          limit: 2
+        - exit_status: 2
+          limit: 2
+
+  - label: ":python: 3.5 / :postgres: 9.5"
+    agents:
+      queue: "medium"
+    env:
+      TRIAL_FLAGS: "-j 8"
+    command:
+      - "bash -c 'python -m pip install tox && python -m tox -e py35-postgres,combine'"
+    plugins:
+      - matrix-org/download#v1.1.0:
+          urls:
+            - https://raw.githubusercontent.com/matrix-org/synapse-dinsic/dinsic/.buildkite/docker-compose.py35.pg95.yaml
+            - https://raw.githubusercontent.com/matrix-org/synapse-dinsic/dinsic/.buildkite/docker-compose-env
+      - docker-compose#v2.1.0:
+          run: testenv
+          config:
+            - /tmp/download-${BUILDKITE_BUILD_ID}/docker-compose.py35.pg95.yaml
+      - artifacts#v1.2.0:
+          upload: [ "_trial_temp/*/*.log" ]
+#      - matrix-org/coveralls#v1.0:
+#          parallel: "true"
+    retry:
+      automatic:
+        - exit_status: -1
+          limit: 2
+        - exit_status: 2
+          limit: 2
+
+  - label: ":python: 3.7 / :postgres: 11"
+    agents:
+      queue: "medium"
+    env:
+      TRIAL_FLAGS: "-j 8"
+    command:
+      - "bash -c 'python -m pip install tox && python -m tox -e py37-postgres,combine'"
+    plugins:
+      - matrix-org/download#v1.1.0:
+          urls:
+            - https://raw.githubusercontent.com/matrix-org/synapse-dinsic/dinsic/.buildkite/docker-compose.py37.pg11.yaml
+            - https://raw.githubusercontent.com/matrix-org/synapse-dinsic/dinsic/.buildkite/docker-compose-env
+      - docker-compose#v2.1.0:
+          run: testenv
+          config:
+            - /tmp/download-${BUILDKITE_BUILD_ID}/docker-compose.py37.pg11.yaml
+      - artifacts#v1.2.0:
+          upload: [ "_trial_temp/*/*.log" ]
+#      - matrix-org/coveralls#v1.0:
+#          parallel: "true"
+    retry:
+      automatic:
+        - exit_status: -1
+          limit: 2
+        - exit_status: 2
+          limit: 2
+
+  - label: ":python: 3.8 / :postgres: 12"
+    agents:
+      queue: "medium"
+    env:
+      TRIAL_FLAGS: "-j 8"
+    command:
+      - "bash -c 'python -m pip install tox && python -m tox -e py38-postgres,combine'"
+    plugins:
+      - matrix-org/download#v1.1.0:
+          urls:
+            - https://raw.githubusercontent.com/matrix-org/synapse-dinsic/dinsic/.buildkite/docker-compose.py38.pg12.yaml
+            - https://raw.githubusercontent.com/matrix-org/synapse-dinsic/dinsic/.buildkite/docker-compose-env
+      - docker-compose#v2.1.0:
+          run: testenv
+          config:
+            - /tmp/download-${BUILDKITE_BUILD_ID}/docker-compose.py38.pg12.yaml
+      - artifacts#v1.2.0:
+          upload: [ "_trial_temp/*/*.log" ]
+#      - matrix-org/coveralls#v1.0:
+#          parallel: "true"
+    retry:
+      automatic:
+        - exit_status: -1
+          limit: 2
+        - exit_status: 2
+          limit: 2
+
+  ################################################################################
+  #
+  # Sytest
+  #
+  ################################################################################
+
+  - label: "SyTest - :python: 3.5 / SQLite / Monolith"
+    agents:
+      queue: "medium"
+    command:
+      - "bash .buildkite/merge_base_branch.sh"
+      - "bash /bootstrap.sh synapse"
+    plugins:
+      - docker#v3.0.1:
+          image: "matrixdotorg/sytest-synapse:dinsic"
+          propagate-environment: true
+          always-pull: true
+          workdir: "/src"
+          entrypoint: "/bin/sh"
+          init: false
+          shell: ["-x", "-c"]
+          mount-buildkite-agent: false
+          volumes: ["./logs:/logs"]
+      - artifacts#v1.2.0:
+          upload: [ "logs/**/*.log", "logs/**/*.log.*", "logs/results.tap" ]
+      - matrix-org/annotate:
+          path: "logs/annotate.md"
+          style: "error"
+#      - matrix-org/coveralls#v1.0:
+#          parallel: "true"
+    retry:
+      automatic:
+        - exit_status: -1
+          limit: 2
+        - exit_status: 2
+          limit: 2
+
+  - label: "SyTest - :python: 3.5 / :postgres: 9.6 / Monolith"
+    agents:
+      queue: "medium"
+    env:
+      POSTGRES: "1"
+    command:
+      - "bash .buildkite/merge_base_branch.sh"
+      - "bash /bootstrap.sh synapse"
+    plugins:
+      - docker#v3.0.1:
+          image: "matrixdotorg/sytest-synapse:dinsic"
+          propagate-environment: true
+          always-pull: true
+          workdir: "/src"
+          entrypoint: "/bin/sh"
+          init: false
+          shell: ["-x", "-c"]
+          mount-buildkite-agent: false
+          volumes: ["./logs:/logs"]
+      - artifacts#v1.2.0:
+          upload: [ "logs/**/*.log", "logs/**/*.log.*", "logs/results.tap" ]
+      - matrix-org/annotate:
+          path: "logs/annotate.md"
+          style: "error"
+#      - matrix-org/coveralls#v1.0:
+#          parallel: "true"
+    retry:
+      automatic:
+        - exit_status: -1
+          limit: 2
+        - exit_status: 2
+          limit: 2
+
+  - label: "SyTest - :python: 3.5 / :postgres: 9.6 / Workers"
+    agents:
+      queue: "medium"
+    env:
+      MULTI_POSTGRES: "1"  # Test with split out databases
+      POSTGRES: "1"
+      WORKERS: "1"
+      BLACKLIST: "synapse-blacklist-with-workers"
+    command:
+      - "bash .buildkite/merge_base_branch.sh"
+      - "bash -c 'cat /src/sytest-blacklist /src/.buildkite/worker-blacklist > /src/synapse-blacklist-with-workers'"
+      - "bash /bootstrap.sh synapse"
+    plugins:
+      - docker#v3.0.1:
+          image: "matrixdotorg/sytest-synapse:dinsic"
+          propagate-environment: true
+          always-pull: true
+          workdir: "/src"
+          entrypoint: "/bin/sh"
+          init: false
+          shell: ["-x", "-c"]
+          mount-buildkite-agent: false
+          volumes: ["./logs:/logs"]
+      - artifacts#v1.2.0:
+          upload: [ "logs/**/*.log", "logs/**/*.log.*", "logs/results.tap" ]
+      - matrix-org/annotate:
+          path: "logs/annotate.md"
+          style: "error"
+ #     - matrix-org/coveralls#v1.0:
+ #         parallel: "true"
+    retry:
+      automatic:
+        - exit_status: -1
+          limit: 2
+        - exit_status: 2
+          limit: 2
+
+
+  - label: "SyTest - :python: 3.8 / :postgres: 12 / Monolith"
+    agents:
+      queue: "medium"
+    env:
+      POSTGRES: "1"
+    command:
+      - "bash .buildkite/merge_base_branch.sh"
+      - "bash /bootstrap.sh synapse"
+    plugins:
+      - docker#v3.0.1:
+          image: "matrixdotorg/sytest-synapse:dinsic"
+          propagate-environment: true
+          always-pull: true
+          workdir: "/src"
+          entrypoint: "/bin/sh"
+          init: false
+          shell: ["-x", "-c"]
+          mount-buildkite-agent: false
+          volumes: ["./logs:/logs"]
+      - artifacts#v1.2.0:
+          upload: [ "logs/**/*.log", "logs/**/*.log.*", "logs/results.tap" ]
+      - matrix-org/annotate:
+          path: "logs/annotate.md"
+          style: "error"
+#      - matrix-org/coveralls#v1.0:
+#          parallel: "true"
+    retry:
+      automatic:
+        - exit_status: -1
+          limit: 2
+        - exit_status: 2
+          limit: 2
+
+  - label: "SyTest - :python: 3.7 / :postgres: 11 / Workers"
+    agents:
+      queue: "medium"
+    env:
+      MULTI_POSTGRES: "1"  # Test with split out databases
+      POSTGRES: "1"
+      WORKERS: "1"
+      BLACKLIST: "synapse-blacklist-with-workers"
+    command:
+      - "bash .buildkite/merge_base_branch.sh"
+      - "bash -c 'cat /src/sytest-blacklist /src/.buildkite/worker-blacklist > /src/synapse-blacklist-with-workers'"
+      - "bash /bootstrap.sh synapse"
+    plugins:
+      - docker#v3.0.1:
+          image: "matrixdotorg/sytest-synapse:dinsic"
+          propagate-environment: true
+          always-pull: true
+          workdir: "/src"
+          entrypoint: "/bin/sh"
+          init: false
+          shell: ["-x", "-c"]
+          mount-buildkite-agent: false
+          volumes: ["./logs:/logs"]
+      - artifacts#v1.2.0:
+          upload: [ "logs/**/*.log", "logs/**/*.log.*", "logs/results.tap" ]
+      - matrix-org/annotate:
+          path: "logs/annotate.md"
+          style: "error"
+ #     - matrix-org/coveralls#v1.0:
+ #         parallel: "true"
+    retry:
+      automatic:
+        - exit_status: -1
+          limit: 2
+        - exit_status: 2
+          limit: 2
+
+# TODO: Enable once Synapse v1.13.0 is merged in
+# - label: "SyTest - :python: 3.7 / :postgres: 11 / Workers / :redis: Redis"
+#   agents:
+#     queue: "medium"
+#   command:
+#     - bash -c "cat /src/sytest-blacklist /src/.buildkite/worker-blacklist > /src/synapse-blacklist-with-workers && ./.buildkite/merge_base_branch.sh && /bootstrap.sh synapse --redis-host redis"
+#   plugins:
+#     - matrix-org/download#v1.1.0:
+#         urls:
+#           - https://raw.githubusercontent.com/matrix-org/synapse-dinsic/dinsic/.buildkite/docker-compose.sytest.py37.redis.yaml
+#           - https://raw.githubusercontent.com/matrix-org/synapse-dinsic/dinsic/.buildkite/docker-compose-env
+#     - docker-compose#v2.1.0:
+#         run: sytest
+#         config:
+#           - /tmp/download-${BUILDKITE_BUILD_ID}/docker-compose.sytest.py37.redis.yaml
+#     - artifacts#v1.2.0:
+#         upload: [ "logs/**/*.log", "logs/**/*.log.*", "logs/results.tap" ]
+#     - matrix-org/annotate:
+#         path: "logs/annotate.md"
+#         style: "error"
+##     - matrix-org/coveralls#v1.0:
+##         parallel: "true"
+#   retry:
+#     automatic:
+#       - exit_status: -1
+#         limit: 2
+#       - exit_status: 2
+#         limit: 2
+
+  ################################################################################
+  #
+  # synapse_port_db
+  #
+  ################################################################################
+
+  - label: "synapse_port_db / :python: 3.5 / :postgres: 9.5"
+    agents:
+      queue: "medium"
+    command:
+      - "bash .buildkite/scripts/test_synapse_port_db.sh"
+    plugins:
+      - matrix-org/download#v1.1.0:
+          urls:
+            - https://raw.githubusercontent.com/matrix-org/synapse-dinsic/dinsic/.buildkite/docker-compose.py35.pg95.yaml
+            - https://raw.githubusercontent.com/matrix-org/synapse-dinsic/dinsic/.buildkite/docker-compose-env
+      - docker-compose#v2.1.0:
+          run: testenv
+          config:
+            - /tmp/download-${BUILDKITE_BUILD_ID}/docker-compose.py35.pg95.yaml
+      - artifacts#v1.2.0:
+          upload: [ "_trial_temp/*/*.log" ]
+#      - matrix-org/coveralls#v1.0:
+#          parallel: "true"
+
+  - label: "synapse_port_db / :python: 3.7 / :postgres: 11"
+    agents:
+      queue: "medium"
+    command:
+      - "bash .buildkite/scripts/test_synapse_port_db.sh"
+    plugins:
+      - matrix-org/download#v1.1.0:
+          urls:
+            - https://raw.githubusercontent.com/matrix-org/synapse-dinsic/dinsic/.buildkite/docker-compose.py37.pg11.yaml
+            - https://raw.githubusercontent.com/matrix-org/synapse-dinsic/dinsic/.buildkite/docker-compose-env
+      - docker-compose#v2.1.0:
+          run: testenv
+          config:
+            - /tmp/download-${BUILDKITE_BUILD_ID}/docker-compose.py37.pg11.yaml
+      - artifacts#v1.2.0:
+          upload: [ "_trial_temp/*/*.log" ]
+#      - matrix-org/coveralls#v1.0:
+#          parallel: "true"
+
+#  - wait: ~
+#    continue_on_failure: true
+#
+#  - label: Trigger webhook
+#    command: "curl -k https://coveralls.io/webhook?repo_token=$COVERALLS_REPO_TOKEN -d \"payload[build_num]=$BUILDKITE_BUILD_NUMBER&payload[status]=done\""

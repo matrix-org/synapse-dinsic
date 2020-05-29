@@ -186,6 +186,7 @@ class Auth(object):
             access_token = self.get_access_token_from_request(request)
 
             user_id, app_service = yield self._get_appservice_user_id(request)
+
             if user_id:
                 request.authenticated_entity = user_id
                 opentracing.set_tag("authenticated_entity", user_id)
@@ -250,11 +251,11 @@ class Auth(object):
         except KeyError:
             raise MissingClientTokenError()
 
-    @defer.inlineCallbacks
     def _get_appservice_user_id(self, request):
         app_service = self.store.get_app_service_by_token(
             self.get_access_token_from_request(request)
         )
+
         if app_service is None:
             return None, None
 
@@ -272,8 +273,12 @@ class Auth(object):
 
         if not app_service.is_interested_in_user(user_id):
             raise AuthError(403, "Application service cannot masquerade as this user.")
-        if not (yield self.store.get_user_by_id(user_id)):
-            raise AuthError(403, "Application service has not registered this user")
+        # Let ASes manipulate nonexistent users (e.g. to shadow-register them)
+        # if not (yield self.store.get_user_by_id(user_id)):
+        #     raise AuthError(
+        #         403,
+        #         "Application service has not registered this user"
+        #     )
         return user_id, app_service
 
     @defer.inlineCallbacks

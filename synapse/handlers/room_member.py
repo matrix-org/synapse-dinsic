@@ -25,11 +25,10 @@ from twisted.internet import defer
 from synapse import types
 from synapse.api.constants import EventTypes, Membership
 from synapse.api.errors import AuthError, Codes, SynapseError
+from synapse.api.ratelimiting import Ratelimiter
 from synapse.types import Collection, RoomID, UserID
 from synapse.util.async_helpers import Linearizer
 from synapse.util.distributor import user_joined_room, user_left_room
-
-from ._base import BaseHandler
 
 logger = logging.getLogger(__name__)
 
@@ -60,6 +59,7 @@ class RoomMemberHandler(object):
         self.registration_handler = hs.get_registration_handler()
         self.profile_handler = hs.get_profile_handler()
         self.event_creation_handler = hs.get_event_creation_handler()
+        self.identity_handler = hs.get_handlers().identity_handler
 
         self.member_linearizer = Linearizer(name="member")
 
@@ -69,11 +69,7 @@ class RoomMemberHandler(object):
         self._server_notices_mxid = self.config.server_notices_mxid
         self._enable_lookup = hs.config.enable_3pid_lookup
         self.allow_per_room_profiles = self.config.allow_per_room_profiles
-
-        # This is only used to get at ratelimit function, and
-        # maybe_kick_guest_users. It's fine there are multiple of these as
-        # it doesn't store state.
-        self.base_handler = BaseHandler(hs)
+        self.ratelimiter = Ratelimiter()
 
     @abc.abstractmethod
     def _remote_join(self, requester, remote_room_hosts, room_id, user, content):
@@ -265,8 +261,31 @@ class RoomMemberHandler(object):
         third_party_signed=None,
         ratelimit=True,
         content=None,
+        new_room=False,
         require_consent=True,
     ):
+        """Update a users membership in a room
+
+        Args:
+            requester (Requester)
+            target (UserID)
+            room_id (str)
+            action (str): The "action" the requester is performing against the
+                target. One of join/leave/kick/ban/invite/unban.
+            txn_id (str|None): The transaction ID associated with the request,
+                or None not provided.
+            remote_room_hosts (list[str]|None): List of remote servers to try
+                and join via if server isn't already in the room.
+            third_party_signed (dict|None): The signed object for third party
+                invites.
+            ratelimit (bool): Whether to apply ratelimiting to this request.
+            content (dict|None): Fields to include in the new events content.
+            new_room (bool): Whether these membership changes are happening
+                as part of a room creation (e.g. initial joins and invites)
+
+        Returns:
+            Deferred[FrozenEvent]
+        """
         key = (room_id,)
 
         with (yield self.member_linearizer.queue(key)):
@@ -280,6 +299,7 @@ class RoomMemberHandler(object):
                 third_party_signed=third_party_signed,
                 ratelimit=ratelimit,
                 content=content,
+                new_room=new_room,
                 require_consent=require_consent,
             )
 
@@ -297,6 +317,7 @@ class RoomMemberHandler(object):
         third_party_signed=None,
         ratelimit=True,
         content=None,
+        new_room=False,
         require_consent=True,
     ):
         content_specified = bool(content)
@@ -361,8 +382,15 @@ class RoomMemberHandler(object):
                     )
                     block_invite = True
 
+                is_published = yield self.store.is_room_published(room_id)
+
                 if not self.spam_checker.user_may_invite(
-                    requester.user.to_string(), target.to_string(), room_id
+                    requester.user.to_string(),
+                    target.to_string(),
+                    third_party_invite=None,
+                    room_id=room_id,
+                    new_room=new_room,
+                    published_room=is_published,
                 ):
                     logger.info("Blocking invite due to spam checker")
                     block_invite = True
@@ -434,8 +462,26 @@ class RoomMemberHandler(object):
                     # so don't really fit into the general auth process.
                     raise AuthError(403, "Guest access not allowed")
 
+            if (
+                self._server_notices_mxid is not None
+                and requester.user.to_string() == self._server_notices_mxid
+            ):
+                # allow the server notices mxid to join rooms
+                is_requester_admin = True
+
+            else:
+                is_requester_admin = yield self.auth.is_server_admin(requester.user)
+
+            inviter = yield self._get_inviter(target.to_string(), room_id)
+            if not is_requester_admin:
+                # We assume that if the spam checker allowed the user to create
+                # a room then they're allowed to join it.
+                if not new_room and not self.spam_checker.user_may_join_room(
+                    target.to_string(), room_id, is_invited=inviter is not None
+                ):
+                    raise SynapseError(403, "Not allowed to join this room")
+
             if not is_host_in_room:
-                inviter = yield self._get_inviter(target.to_string(), room_id)
                 if inviter and not self.hs.is_mine(inviter):
                     remote_room_hosts.append(inviter.domain)
 
@@ -706,6 +752,7 @@ class RoomMemberHandler(object):
         id_server,
         requester,
         txn_id,
+        new_room=False,
         id_access_token=None,
     ):
         if self.config.block_non_admin_invites:
@@ -717,7 +764,23 @@ class RoomMemberHandler(object):
 
         # We need to rate limit *before* we send out any 3PID invites, so we
         # can't just rely on the standard ratelimiting of events.
-        yield self.base_handler.ratelimit(requester)
+        self.ratelimiter.ratelimit(
+            requester.user.to_string(),
+            time_now_s=self.hs.clock.time(),
+            rate_hz=self.hs.config.rc_third_party_invite.per_second,
+            burst_count=self.hs.config.rc_third_party_invite.burst_count,
+            update=True,
+        )
+
+        can_invite = yield self.third_party_event_rules.check_threepid_can_be_invited(
+            medium, address, room_id
+        )
+        if not can_invite:
+            raise SynapseError(
+                403,
+                "This third-party identifier can not be invited in this room",
+                Codes.FORBIDDEN,
+            )
 
         can_invite = yield self.third_party_event_rules.check_threepid_can_be_invited(
             medium, address, room_id
@@ -737,6 +800,19 @@ class RoomMemberHandler(object):
         invitee = yield self.identity_handler.lookup_3pid(
             id_server, medium, address, id_access_token
         )
+
+        is_published = yield self.store.is_room_published(room_id)
+
+        if not self.spam_checker.user_may_invite(
+            requester.user.to_string(),
+            invitee,
+            third_party_invite={"medium": medium, "address": address},
+            room_id=room_id,
+            new_room=new_room,
+            published_room=is_published,
+        ):
+            logger.info("Blocking invite due to spam checker")
+            raise SynapseError(403, "Invites have been disabled on this server")
 
         if invitee:
             yield self.update_membership(

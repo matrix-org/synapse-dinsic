@@ -191,7 +191,7 @@ class FederationHandler(BaseHandler):
         room_id = pdu.room_id
         event_id = pdu.event_id
 
-        logger.info("handling received PDU: %s", pdu)
+        logger.info("[%s %s] handling received PDU: %s", room_id, event_id, pdu)
 
         # We reprocess pdus when we have seen them only as outliers
         existing = await self.store.get_event(
@@ -306,6 +306,14 @@ class FederationHandler(BaseHandler):
                                 room_id,
                                 event_id,
                             )
+                elif missing_prevs:
+                    logger.info(
+                        "[%s %s] Not recursively fetching %d missing prev_events: %s",
+                        room_id,
+                        event_id,
+                        len(missing_prevs),
+                        shortstr(missing_prevs),
+                    )
 
             if prevs - seen:
                 # We've still not been able to get all of the prev_events for this event.
@@ -350,12 +358,6 @@ class FederationHandler(BaseHandler):
                         affected=pdu.event_id,
                     )
 
-                logger.info(
-                    "Event %s is missing prev_events: calculating state for a "
-                    "backwards extremity",
-                    event_id,
-                )
-
                 # Calculate the state after each of the previous events, and
                 # resolve them to find the correct state at the current event.
                 event_map = {event_id: pdu}
@@ -373,7 +375,10 @@ class FederationHandler(BaseHandler):
                     # know about
                     for p in prevs - seen:
                         logger.info(
-                            "Requesting state at missing prev_event %s", event_id,
+                            "[%s %s] Requesting state at missing prev_event %s",
+                            room_id,
+                            event_id,
+                            p,
                         )
 
                         with nested_logging_context(p):
@@ -407,9 +412,7 @@ class FederationHandler(BaseHandler):
                     # First though we need to fetch all the events that are in
                     # state_map, so we can build up the state below.
                     evs = await self.store.get_events(
-                        list(state_map.values()),
-                        get_prev_content=False,
-                        redact_behaviour=EventRedactBehaviour.AS_IS,
+                        list(state_map.values()), get_prev_content=False,
                     )
                     event_map.update(evs)
 
@@ -1518,8 +1521,15 @@ class FederationHandler(BaseHandler):
         if self.hs.config.block_non_admin_invites:
             raise SynapseError(403, "This server does not accept room invites")
 
+        is_published = await self.store.is_room_published(event.room_id)
+
         if not self.spam_checker.user_may_invite(
-            event.sender, event.state_key, event.room_id
+            event.sender,
+            event.state_key,
+            None,
+            room_id=event.room_id,
+            new_room=False,
+            published_room=is_published,
         ):
             raise SynapseError(
                 403, "This user is not permitted to send invites to this server/user"

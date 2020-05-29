@@ -92,7 +92,7 @@ class MatrixFederationAgentTests(unittest.TestCase):
 
         self.agent = MatrixFederationAgent(
             reactor=self.reactor,
-            tls_client_options_factory=self.tls_factory,
+            tls_client_options_factory=FederationPolicyForHTTPS(config),
             _srv_resolver=self.mock_resolver,
             _well_known_resolver=self.well_known_resolver,
         )
