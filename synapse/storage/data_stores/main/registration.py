@@ -17,6 +17,7 @@
 
 import logging
 import re
+from typing import List
 
 from six import iterkeys
 
@@ -294,6 +295,41 @@ class RegistrationWorkerStore(SQLBaseStore):
             keyvalues={"user_id": user_id},
             desc="delete_account_validity_for_user",
         )
+
+    @defer.inlineCallbacks
+    def get_info_for_users(
+        self, user_ids: List[str],
+    ):
+        """Return the user info for a given set of users
+
+        Args:
+            user_ids: A list of users to return information about
+
+        Returns:
+            Deferred[Dict[str, bool]: A dictionary mapping each user ID to
+                a dict with the following keys:
+                    * expired (bool) - whether this is an expired user
+                    * deactivated (bool) - whether this is a deactivated user
+        """
+        users_to_info_dict = {}
+
+        # Get information of all our local users
+        for user_id in user_ids:
+            # Check whether the user is deactivated
+            is_deactivated = yield self.get_user_deactivated_status(user_id)
+
+            # Check whether the user is expired
+            expiration_ts = yield self.get_expiration_ts_for_user(user_id)
+            is_expired = (
+                expiration_ts is not None and self.clock.time_msec() >= expiration_ts
+            )
+
+            users_to_info_dict[user_id] = {
+                "expired": is_expired,
+                "deactivated": is_deactivated,
+            }
+
+        return users_to_info_dict
 
     async def is_server_admin(self, user):
         """Determines if a user is an admin of this homeserver.
