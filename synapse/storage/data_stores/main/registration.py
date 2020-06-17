@@ -158,21 +158,44 @@ class RegistrationWorkerStore(SQLBaseStore):
         )
 
     @defer.inlineCallbacks
-    def get_expired_users(self):
-        """Get IDs of all expired users
+    def get_expired_users(self, active_only: bool = False):
+        """Get UserIDs of all expired users
+
+        Args:
+            active_only: Whether to return only those users that are marked as active
+                as part of their profile (note that this flag is separate from entire
+                account deactivation)
 
         Returns:
-            Deferred[list[str]]: List of expired user IDs
+            Deferred[List[UserID]]: List of expired user IDs
         """
 
         def get_expired_users_txn(txn, now_ms):
+            sql_args = (now_ms,)
+
+            # Determine whether we should constrain our query based on whether
+            # the user is active
+            join_sql = ""
+            if active_only:
+                join_sql = """
+                LEFT JOIN profiles as p
+                ON av.user_id = p.user_id
+                AND p.active = ?
+                """
+                sql_args = (1,) + sql_args  # 1 = true
+
+            # Build the final SQL
             sql = """
-                SELECT user_id from account_validity
+                SELECT av.user_id from account_validity AS av
+                %s
                 WHERE expiration_ts_ms <= ?
-            """
-            txn.execute(sql, (now_ms,))
+            """ % (
+                join_sql,
+            )
+
+            txn.execute(sql, sql_args)
             rows = txn.fetchall()
-            return [row[0] for row in rows]
+            return [UserID.from_string(row[0]) for row in rows]
 
         res = yield self.db.runInteraction(
             "get_expired_users", get_expired_users_txn, self.clock.time_msec()

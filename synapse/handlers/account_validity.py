@@ -288,15 +288,14 @@ class AccountValidityHandler(object):
 
     @defer.inlineCallbacks
     def _mark_expired_users_as_inactive(self):
-        """Iterate over expired users. Mark them as inactive in order to hide them from the
-        user directory.
+        """Iterate over active, expired users. Mark them as inactive in order to hide them
+        from the user directory.
 
         Returns:
             Deferred
         """
-        # Get expired users
-        expired_user_ids = yield self.store.get_expired_users()
-        expired_users = [UserID.from_string(user_id) for user_id in expired_user_ids]
+        # Get active, expired users
+        active_expired_users = yield self.store.get_expired_users(active_only=True)
 
         # Mark each as non-active
-        yield self.profile_handler.set_active(expired_users, False, True)
+        yield self.profile_handler.set_active(active_expired_users, False, True)
