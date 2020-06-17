@@ -79,7 +79,25 @@ class RegistrationHandler(BaseHandler):
         self.session_lifetime = hs.config.session_lifetime
 
     @defer.inlineCallbacks
-    def check_username(self, localpart, guest_access_token=None, assigned_user_id=None):
+    def check_username(
+        self,
+        localpart,
+        guest_access_token=None,
+        assigned_user_id=None,
+        user_in_use_exception=True,
+    ):
+        """
+
+        Args:
+            localpart (str|None): The user's localpart
+            guest_access_token (str|None): A guest's access token
+            assigned_user_id (str|None): An existing User ID for this user if pre-calculated
+            user_in_use_exception (bool): Whether to raise an M_USER_IN_USE error if the
+                user ID already exists in the database
+
+        Returns:
+            Deferred
+        """
         if types.contains_invalid_mxid_characters(localpart):
             raise SynapseError(
                 400,
@@ -118,7 +136,9 @@ class RegistrationHandler(BaseHandler):
 
         users = yield self.store.get_users_by_id_case_insensitive(user_id)
         if users:
-            if not guest_access_token:
+            if not guest_access_token and user_in_use_exception:
+                # Note that we don't want to give this exception to any clients, as they
+                # could use it to infer whether a user exists on a server or not
                 raise SynapseError(
                     400, "User ID already taken.", errcode=Codes.USER_IN_USE
                 )

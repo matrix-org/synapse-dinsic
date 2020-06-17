@@ -363,7 +363,11 @@ class UsernameAvailabilityRestServlet(RestServlet):
 
             username = parse_string(request, "username", required=True)
 
-            await self.registration_handler.check_username(username)
+            await self.registration_handler.check_username(
+                username,
+                # Prevent leaking information to the client about whether a username is in use
+                user_in_use_exception=False,
+            )
 
             return 200, {"available": True}
 
