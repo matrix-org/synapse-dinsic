@@ -136,12 +136,16 @@ class RegistrationHandler(BaseHandler):
 
         users = yield self.store.get_users_by_id_case_insensitive(user_id)
         if users:
-            if not guest_access_token and user_in_use_exception:
-                # Note that we don't want to give this exception to any clients, as they
-                # could use it to infer whether a user exists on a server or not
-                raise SynapseError(
-                    400, "User ID already taken.", errcode=Codes.USER_IN_USE
-                )
+            if not guest_access_token:
+                if user_in_use_exception:
+                    # Note that we don't want to give this exception to any clients, as they
+                    # could use it to infer whether a user exists on a server or not
+                    raise SynapseError(
+                        400, "User ID already taken.", errcode=Codes.USER_IN_USE
+                    )
+                return
+
+            # Retrieve guest user information from provided access token
             user_data = yield self.auth.get_user_by_access_token(guest_access_token)
             if not user_data["is_guest"] or user_data["user"].localpart != localpart:
                 raise AuthError(

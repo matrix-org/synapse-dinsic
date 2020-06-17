@@ -528,6 +528,7 @@ class RegisterRestServlet(RestServlet):
                 desired_username,
                 guest_access_token=guest_access_token,
                 assigned_user_id=registered_user_id,
+                user_in_use_exception=False,
             )
 
         auth_result, params, session_id = await self.auth_handler.check_auth(
