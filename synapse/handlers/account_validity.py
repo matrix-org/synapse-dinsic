@@ -281,7 +281,7 @@ class AccountValidityHandler(object):
         if self._show_users_in_user_directory:
             # Show the user in the directory again by setting them to active
             await self.profile_handler.set_active(
-                UserID.from_string(user_id), True, True
+                [UserID.from_string(user_id)], True, True
             )
 
         return expiration_ts
@@ -298,6 +298,5 @@ class AccountValidityHandler(object):
         expired_user_ids = yield self.store.get_expired_users()
         expired_users = [UserID.from_string(user_id) for user_id in expired_user_ids]
 
-        # Mark each one as non-active
-        for user in expired_users:
-            yield self.profile_handler.set_active(user, False, True)
+        # Mark each as non-active
+        yield self.profile_handler.set_active(expired_users, False, True)
