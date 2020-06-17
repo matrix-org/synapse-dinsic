@@ -471,8 +471,8 @@ class UserInfoTestCase(unittest.FederatingHomeserverTestCase):
         account.register_servlets,
     ]
 
-    def default_config(self, name="test"):
-        config = super().default_config(name=name)
+    def default_config(self):
+        config = super().default_config()
 
         # Set accounts to expire after a week
         config["account_validity"] = {
