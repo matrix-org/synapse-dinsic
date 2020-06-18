@@ -698,19 +698,6 @@ class FederationServer(FederationBase):
 
         raise AuthError(code=403, msg="Server is banned from room")
 
-    async def on_user_info(self, user_ids: List[str]):
-        """Return user information given a list of user ids
-
-        Args:
-            user_ids: A list of users to return information about
-
-        Returns:
-            A dictionary mapping each user ID to a dict with the following keys:
-                * expired (bool) - whether this is an expired user
-                * deactivated (bool) - whether this is a deactivated user
-        """
-        return await self.store.get_info_for_users(user_ids)
-
 
 def server_matches_acl_event(server_name: str, acl_event: EventBase) -> bool:
     """Check if the given server is allowed by the ACL event

@@ -897,7 +897,7 @@ class FederationUserInfoServlet(BaseFederationServlet):
                 errcode=Codes.INVALID_PARAM,
             )
 
-        data = await self.handler.on_user_info(user_ids)
+        data = await self.handler.store.get_info_for_users(user_ids)
         return 200, data
 
 
