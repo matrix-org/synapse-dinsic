@@ -306,10 +306,10 @@ class RegistrationWorkerStore(SQLBaseStore):
             user_ids: A list of users to return information about
 
         Returns:
-            Deferred[Dict[str, bool]: A dictionary mapping each user ID to
+            Deferred[Dict[str, bool]]: A dictionary mapping each user ID to
                 a dict with the following keys:
-                    * expired (bool) - whether this is an expired user
-                    * deactivated (bool) - whether this is a deactivated user
+                    * expired - whether this is an expired user
+                    * deactivated - whether this is a deactivated user
         """
         # Get information of all our local users
         def _get_info_for_users_txn(txn):
