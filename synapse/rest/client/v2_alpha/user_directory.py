@@ -119,9 +119,7 @@ class SingleUserInfoServlet(RestServlet):
 
     async def on_GET(self, request, user_id):
         # Ensure the user is authenticated
-        await defer.ensureDeferred(
-            self.auth.get_user_by_req(request, allow_guest=False)
-        )
+        await defer.ensureDeferred(self.auth.get_user_by_req(request))
 
         user = UserID.from_string(user_id)
         if not self.hs.is_mine(user):
@@ -177,7 +175,7 @@ class UserInfoServlet(RestServlet):
 
     async def on_POST(self, request):
         # Ensure the user is authenticated
-        await self.auth.get_user_by_req(request, allow_guest=False)
+        await self.auth.get_user_by_req(request)
 
         # Extract the user_ids from the request
         body = parse_json_object_from_request(request)
