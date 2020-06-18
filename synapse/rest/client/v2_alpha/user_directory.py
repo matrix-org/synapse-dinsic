@@ -191,21 +191,21 @@ class UserInfoServlet(RestServlet):
 
         # Separate local and remote users
         local_user_ids = set()
-        remote_server_to_user_id = {}  # type: Dict[str, set]
+        remote_server_to_user_ids = {}  # type: Dict[str, set]
         for user_id in user_ids:
             user = UserID.from_string(user_id)
 
             if self.hs.is_mine(user):
                 local_user_ids.add(user_id)
             else:
-                remote_server_to_user_id.setdefault(user.domain, set())
-                remote_server_to_user_id[user.domain].add(user_id)
+                remote_server_to_user_ids.setdefault(user.domain, set())
+                remote_server_to_user_ids[user.domain].add(user_id)
 
         # Retrieve info of all local users
         user_id_to_info_dict = await self.store.get_info_for_users(local_user_ids)
 
         # Request info of each remote user from their remote homeserver
-        for server_name, user_id_set in remote_server_to_user_id.items():
+        for server_name, user_id_set in remote_server_to_user_ids.items():
             # Make a request to the given server about their own users
             res = await self.transport_layer.get_info_of_users(
                 server_name, list(user_id_set)
