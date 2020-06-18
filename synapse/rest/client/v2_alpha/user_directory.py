@@ -99,7 +99,7 @@ class UserDirectorySearchRestServlet(RestServlet):
 
 class SingleUserInfoServlet(RestServlet):
     """
-    Deprecated and replaced by `/user/info`
+    Deprecated and replaced by `/users/info`
 
     GET /user/{user_id}/info HTTP/1.1
     """
@@ -161,12 +161,12 @@ class SingleUserInfoServlet(RestServlet):
 class UserInfoServlet(RestServlet):
     """Bulk version of `/user/{user_id}/info` endpoint
 
-    GET /user/info HTTP/1.1
+    GET /users/info HTTP/1.1
 
     Returns a dictionary of user_id to info dictionary. Supports remote users
     """
 
-    PATTERNS = client_patterns("/user/info$")
+    PATTERNS = client_patterns("/users/info$")
 
     def __init__(self, hs):
         super(UserInfoServlet, self).__init__()

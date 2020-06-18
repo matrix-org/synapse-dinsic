@@ -858,7 +858,7 @@ class FederationUserInfoServlet(BaseFederationServlet):
     users. Requested users not local to this homeserver will be ignored.
 
     Example request:
-        POST /userinfo
+        POST /users/info
 
         {
             "user_ids": [
@@ -876,7 +876,7 @@ class FederationUserInfoServlet(BaseFederationServlet):
         }
     """
 
-    PATH = "/user/info"
+    PATH = "/users/info"
     PREFIX = FEDERATION_UNSTABLE_PREFIX
 
     def __init__(self, handler, authenticator, ratelimiter, server_name):

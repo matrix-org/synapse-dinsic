@@ -487,13 +487,13 @@ class UserInfoTestCase(unittest.FederatingHomeserverTestCase):
         self.handler = hs.get_user_directory_handler()
 
     def test_user_info(self):
-        """Test /user/info for local users from the Client-Server API"""
+        """Test /users/info for local users from the Client-Server API"""
         user_one, user_two, user_three, user_three_token = self.setup_test_users()
 
         # Request info about each user from user_three
         request, channel = self.make_request(
             "POST",
-            path="user/info",
+            path="users/info",
             content={"user_ids": [user_one, user_two, user_three]},
             access_token=user_three_token,
         )
@@ -516,7 +516,7 @@ class UserInfoTestCase(unittest.FederatingHomeserverTestCase):
         self.assertFalse(user_three_info["expired"])
 
     def test_user_info_federation(self):
-        """Test that /user/info can be called from the Federation API, and
+        """Test that /users/info can be called from the Federation API, and
         and that we can query remote users from the Client-Server API
         """
         user_one, user_two, user_three, user_three_token = self.setup_test_users()
@@ -524,7 +524,7 @@ class UserInfoTestCase(unittest.FederatingHomeserverTestCase):
         # Request information about our local users from the perspective of a remote server
         request, channel = self.make_request(
             "POST",
-            path="/_matrix/federation/unstable/user/info",
+            path="/_matrix/federation/unstable/users/info",
             content={"user_ids": [user_one, user_two, user_three]},
         )
         self.render(request)

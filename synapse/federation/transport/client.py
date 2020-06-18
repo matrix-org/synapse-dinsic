@@ -1030,7 +1030,7 @@ class TransportLayerClient(object):
         Returns:
             Deferred[List]: A dictionary of User ID to information about that user.
         """
-        path = _create_path(FEDERATION_UNSTABLE_PREFIX, "/user/info")
+        path = _create_path(FEDERATION_UNSTABLE_PREFIX, "/users/info")
         data = {"user_ids": user_ids}
 
         return self.client.post_json(destination=destination, path=path, data=data)
