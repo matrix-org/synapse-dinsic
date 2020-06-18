@@ -166,7 +166,7 @@ class UserInfoServlet(RestServlet):
     Returns a dictionary of user_id to info dictionary. Supports remote users
     """
 
-    PATTERNS = client_patterns("/users/info$")
+    PATTERNS = client_patterns("/users/info$", unstable=True, releases=())
 
     def __init__(self, hs):
         super(UserInfoServlet, self).__init__()

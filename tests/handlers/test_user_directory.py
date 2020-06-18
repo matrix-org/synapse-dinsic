@@ -493,9 +493,10 @@ class UserInfoTestCase(unittest.FederatingHomeserverTestCase):
         # Request info about each user from user_three
         request, channel = self.make_request(
             "POST",
-            path="users/info",
+            path="/_matrix/client/unstable/users/info",
             content={"user_ids": [user_one, user_two, user_three]},
             access_token=user_three_token,
+            shorthand=False,
         )
         self.render(request)
         self.assertEquals(200, channel.code, channel.result)
