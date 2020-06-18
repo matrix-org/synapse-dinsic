@@ -311,25 +311,40 @@ class RegistrationWorkerStore(SQLBaseStore):
                     * expired (bool) - whether this is an expired user
                     * deactivated (bool) - whether this is a deactivated user
         """
-        users_to_info_dict = {}
-
         # Get information of all our local users
-        for user_id in user_ids:
-            # Check whether the user is deactivated
-            is_deactivated = yield self.get_user_deactivated_status(user_id)
+        def _get_info_for_users_txn(txn):
+            rows = []
 
-            # Check whether the user is expired
-            expiration_ts = yield self.get_expiration_ts_for_user(user_id)
-            is_expired = (
-                expiration_ts is not None and self.clock.time_msec() >= expiration_ts
-            )
+            for user_id in user_ids:
+                sql = """
+                    SELECT u.name, u.deactivated, av.expiration_ts_ms
+                    FROM users as u
+                    LEFT JOIN account_validity as av
+                    ON av.user_id = u.name
+                    WHERE u.name = ?
+                """
 
-            users_to_info_dict[user_id] = {
-                "expired": is_expired,
-                "deactivated": is_deactivated,
+                txn.execute(sql, (user_id,))
+                row = txn.fetchone()
+                logger.info("Got row: %s", row)
+                if row:
+                    rows.append(row)
+
+            return rows
+
+        info_rows = yield self.db.runInteraction(
+            "get_info_for_users", _get_info_for_users_txn
+        )
+
+        return {
+            user_id: {
+                "expired": (
+                    expiration is not None and self.clock.time_msec() >= expiration
+                ),
+                "deactivated": deactivated == 1,
             }
-
-        return users_to_info_dict
+            for user_id, deactivated, expiration in info_rows
+        }
 
     async def is_server_admin(self, user):
         """Determines if a user is an admin of this homeserver.
