@@ -18,8 +18,6 @@ from typing import Dict
 
 from signedjson.sign import sign_json
 
-from twisted.internet import defer
-
 from synapse.api.errors import Codes, SynapseError
 from synapse.http.servlet import (
     RestServlet,
@@ -119,16 +117,14 @@ class SingleUserInfoServlet(RestServlet):
 
     async def on_GET(self, request, user_id):
         # Ensure the user is authenticated
-        await defer.ensureDeferred(self.auth.get_user_by_req(request))
+        await self.auth.get_user_by_req(request)
 
         user = UserID.from_string(user_id)
         if not self.hs.is_mine(user):
             # Attempt to make a federation request to the server that owns this user
             args = {"user_id": user_id}
-            res = await defer.ensureDeferred(
-                self.transport_layer.make_query(
-                    user.domain, "user_info", args, retry_on_dns_fail=True
-                )
+            res = await self.transport_layer.make_query(
+                user.domain, "user_info", args, retry_on_dns_fail=True
             )
             return 200, res
 
