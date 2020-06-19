@@ -174,9 +174,9 @@ class RegistrationWorkerStore(SQLBaseStore):
             sql = """
             SELECT av.user_id from account_validity AS av
                 LEFT JOIN profiles as p
-                ON INSTR(av.user_id, p.user_id + ':') > 0
-                AND p.active = 1
+                ON INSTR(av.user_id, p.user_id || ':') > 0
             WHERE expiration_ts_ms <= ?
+                AND p.active = 1
             """
             txn.execute(sql, (now_ms,))
             rows = txn.fetchall()
