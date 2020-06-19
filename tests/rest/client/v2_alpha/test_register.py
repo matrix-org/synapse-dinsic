@@ -550,8 +550,8 @@ class AccountValidityUserDirectoryTestCase(unittest.HomeserverTestCase):
             self.hs.get_datastore().set_profile_displayname(username, "mr.kermit", 1)
         )
 
-        # Wait for the background job to run which hides expired users in the directory
-        self.pump(60 * 60 * 1000)
+        # Wait for the background job to replicate user profiles run
+        self.reactor.advance(2 * 60 * 1000)
 
         # Check that a full profile for this user is replicated
         self.assertIsNotNone(post_json.call_args, post_json.call_args)
@@ -584,7 +584,7 @@ class AccountValidityUserDirectoryTestCase(unittest.HomeserverTestCase):
         self.assertEquals(channel.result["code"], b"200", channel.result)
 
         # Wait for the background job to run which hides expired users in the directory
-        self.pump(60 * 60 * 1000)
+        self.reactor.advance(60 * 60 * 1000)
 
         # Check if the homeserver has replicated the user's profile to the identity server
         self.assertIsNotNone(post_json.call_args, post_json.call_args)
