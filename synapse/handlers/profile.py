@@ -303,7 +303,7 @@ class BaseProfileHandler(BaseHandler):
         accounts are considered deactivated or hidden.
 
         If 'hide' is true, then we interpret active=False as a request to try to
-        hide the user rather than deactivating it. This means withholding the
+        hide the users rather than deactivating them. This means withholding the
         profiles from replication (and mark it as inactive) rather than clearing
         the profile from the HS DB.
 

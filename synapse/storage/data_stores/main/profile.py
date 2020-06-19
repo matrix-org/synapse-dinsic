@@ -159,9 +159,9 @@ class ProfileWorkerStore(SQLBaseStore):
 
         Args:
             users: A list of UserIDs
-            active: Whether to set the user to active or inactive
-            hide: Whether to hide the user (withold from replication). If
-                False and active is False, user will have their profile
+            active: Whether to set the users to active or inactive
+            hide: Whether to hide the users (withold from replication). If
+                False and active is False, users will have their profiles
                 erased
             batchnum: The batch number, used for profile replication
 
