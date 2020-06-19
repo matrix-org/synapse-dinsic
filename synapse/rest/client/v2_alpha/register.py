@@ -357,19 +357,9 @@ class UsernameAvailabilityRestServlet(RestServlet):
                 403, "Registration has been disabled", errcode=Codes.FORBIDDEN
             )
 
-        ip = self.hs.get_ip_from_request(request)
-        with self.ratelimiter.ratelimit(ip) as wait_deferred:
-            await wait_deferred
-
-            username = parse_string(request, "username", required=True)
-
-            await self.registration_handler.check_username(
-                username,
-                # Prevent leaking information to the client about whether a username is in use
-                user_in_use_exception=False,
-            )
-
-            return 200, {"available": True}
+        # We are not interested in logging in via a username in this deployment.
+        # Simply allow anything here as it won't be used later.
+        return 200, {"available": True}
 
 
 class RegisterRestServlet(RestServlet):
