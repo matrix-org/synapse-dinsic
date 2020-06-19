@@ -550,9 +550,6 @@ class AccountValidityUserDirectoryTestCase(unittest.HomeserverTestCase):
             self.hs.get_datastore().set_profile_displayname(username, "mr.kermit", 1)
         )
 
-        # Wait for the background job to replicate user profiles run
-        self.reactor.advance(2 * 60 * 1000)
-
         # Check that a full profile for this user is replicated
         self.assertIsNotNone(post_json.call_args, post_json.call_args)
         payload = post_json.call_args[0][1]
