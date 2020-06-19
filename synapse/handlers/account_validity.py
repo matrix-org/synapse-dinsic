@@ -295,7 +295,7 @@ class AccountValidityHandler(object):
             Deferred
         """
         # Get active, expired users
-        active_expired_users = yield self.store.get_expired_users(active_only=True)
+        active_expired_users = yield self.store.get_expired_users()
 
         # Mark each as non-active
         yield self.profile_handler.set_active(active_expired_users, False, True)

@@ -544,10 +544,6 @@ class AccountValidityUserDirectoryTestCase(unittest.HomeserverTestCase):
         user_id = self.register_user(username, "monkey")
         self.login(username, "monkey")
 
-        self.pump(1000)
-        self.reactor.advance(1000)
-        self.pump()
-
         # Expire the user
         url = "/_matrix/client/unstable/admin/account_validity/validity"
         params = {
