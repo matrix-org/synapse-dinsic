@@ -80,11 +80,7 @@ class RegistrationHandler(BaseHandler):
 
     @defer.inlineCallbacks
     def check_username(
-        self,
-        localpart,
-        guest_access_token=None,
-        assigned_user_id=None,
-        user_in_use_exception=True,
+        self, localpart, guest_access_token=None, assigned_user_id=None,
     ):
         """
 
@@ -92,8 +88,6 @@ class RegistrationHandler(BaseHandler):
             localpart (str|None): The user's localpart
             guest_access_token (str|None): A guest's access token
             assigned_user_id (str|None): An existing User ID for this user if pre-calculated
-            user_in_use_exception (bool): Whether to raise an M_USER_IN_USE error if the
-                user ID already exists in the database
 
         Returns:
             Deferred
@@ -137,13 +131,11 @@ class RegistrationHandler(BaseHandler):
         users = yield self.store.get_users_by_id_case_insensitive(user_id)
         if users:
             if not guest_access_token:
-                if user_in_use_exception:
-                    # Note that we don't want to give this exception to any clients, as they
-                    # could use it to infer whether a user exists on a server or not
-                    raise SynapseError(
-                        400, "User ID already taken.", errcode=Codes.USER_IN_USE
-                    )
-                return
+                # Note that we don't want to give this exception to any clients, as they
+                # could use it to infer whether a user exists on a server or not
+                raise SynapseError(
+                    400, "User ID already taken.", errcode=Codes.USER_IN_USE
+                )
 
             # Retrieve guest user information from provided access token
             user_data = yield self.auth.get_user_by_access_token(guest_access_token)
