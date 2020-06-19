@@ -174,7 +174,7 @@ class RegistrationWorkerStore(SQLBaseStore):
             sql = """
             SELECT av.user_id from account_validity AS av
                 LEFT JOIN profiles as p
-                ON INSTR(av.user_id, p.user_id || ':') > 0
+                ON av.user_id LIKE '%%' || p.user_id || ':%%'
             WHERE expiration_ts_ms <= ?
                 AND p.active = 1
             """
