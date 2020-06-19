@@ -169,7 +169,7 @@ class RegistrationWorkerStore(SQLBaseStore):
         """
 
         def get_expired_users_txn(txn, now_ms):
-            # We need to use the INSTR as profiles.user_id is confusingly just the
+            # We need to use pattern matching as profiles.user_id is confusingly just the
             # user's localpart, whereas account_validity.user_id is a full user ID
             sql = """
             SELECT av.user_id from account_validity AS av
