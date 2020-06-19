@@ -326,7 +326,6 @@ class RegistrationWorkerStore(SQLBaseStore):
 
                 txn.execute(sql, (user_id,))
                 row = txn.fetchone()
-                logger.info("Got row: %s", row)
                 if row:
                     rows.append(row)
 
