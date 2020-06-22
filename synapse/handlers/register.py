@@ -131,8 +131,6 @@ class RegistrationHandler(BaseHandler):
         users = yield self.store.get_users_by_id_case_insensitive(user_id)
         if users:
             if not guest_access_token:
-                # Note that we don't want to give this exception to any clients, as they
-                # could use it to infer whether a user exists on a server or not
                 raise SynapseError(
                     400, "User ID already taken.", errcode=Codes.USER_IN_USE
                 )
