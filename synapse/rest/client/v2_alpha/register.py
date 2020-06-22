@@ -437,8 +437,8 @@ class RegisterRestServlet(RestServlet):
             body["password_hash"] = await self.auth_handler.hash(password)
             desired_password_hash = body["password_hash"]
 
-        # We don't care about usernames for this deployments. In fact,
-        # the act of checking whether they exist already can leak metadata about
+        # We don't care about usernames for this deployment. In fact, the act
+        # of checking whether they exist already can leak metadata about
         # which users are already registered.
         #
         # Usernames are already derived via the provided email.
