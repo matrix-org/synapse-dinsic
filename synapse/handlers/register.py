@@ -637,20 +637,6 @@ class RegistrationHandler(BaseHandler):
         if auth_result and LoginType.EMAIL_IDENTITY in auth_result:
             threepid = auth_result[LoginType.EMAIL_IDENTITY]
 
-            if "medium" not in threepid or "address" not in threepid:
-                raise SynapseError(
-                    400,
-                    "Invalid %s authdict" % (LoginType.EMAIL_IDENTITY,),
-                    errcode=Codes.INVALID_PARAM,
-                )
-
-            if threepid["medium"] != "email":
-                raise SynapseError(
-                    400,
-                    "Invalid medium %s" % (threepid["medium"],),
-                    errcode=Codes.INVALID_PARAM,
-                )
-
             # Necessary due to auth checks prior to the threepid being
             # written to the db
             if is_threepid_reserved(

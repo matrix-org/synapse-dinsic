@@ -1036,7 +1036,8 @@ class IdentityHandler(BaseHandler):
     async def bind_email_using_internal_sydent_api(
         self, id_server_url: str, email: str, user_id: str,
     ):
-        """Bind an email to a fully qualified user ID on an instance of Sydent.
+        """Bind an email to a fully qualified user ID using the internal API of an
+        instance of Sydent.
 
         Args:
             id_server_url: The URL of the Sydent instance
