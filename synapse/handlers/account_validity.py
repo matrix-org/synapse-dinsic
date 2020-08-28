@@ -299,3 +299,10 @@ class AccountValidityHandler(object):
 
         # Mark each as non-active
         yield self.profile_handler.set_active(active_expired_users, False, True)
+
+
+def is_user_expired(user_id, store, current_ts):
+    expiration_ts = yield store.get_expiration_ts_for_user(user_id)
+    if expiration_ts is not None and current_ts >= expiration_ts:
+        return True
+    return False

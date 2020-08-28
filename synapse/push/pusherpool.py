@@ -21,6 +21,7 @@ from prometheus_client import Gauge
 
 from twisted.internet import defer
 
+from synapse.handlers.account_validity import is_user_expired
 from synapse.metrics.background_process_metrics import run_as_background_process
 from synapse.push import PusherConfigException
 from synapse.push.emailpusher import EmailPusher
@@ -65,6 +66,8 @@ class PusherPool:
         # We shard the handling of push notifications by user ID.
         self._pusher_shard_config = hs.config.push.pusher_shard_config
         self._instance_name = hs.get_instance_name()
+
+        self._account_validity = hs.config.account_validity
 
         # map from user id to app_id:pushkey to pusher
         self.pushers = {}  # type: Dict[str, Dict[str, Union[HttpPusher, EmailPusher]]]
@@ -196,6 +199,11 @@ class PusherPool:
 
             for u in users_affected:
                 if u in self.pushers:
+                    # Don't push if the user account has expired
+                    if self._account_validity.enabled:
+                        if is_user_expired(u, self.store, self.clock.time_msec()):
+                            continue
+
                     for p in self.pushers[u].values():
                         p.on_new_notifications(min_stream_id, max_stream_id)
 
@@ -217,6 +225,11 @@ class PusherPool:
 
             for u in users_affected:
                 if u in self.pushers:
+                    # Don't push if the user account has expired
+                    if self._account_validity.enabled:
+                        if is_user_expired(u, self.store, self.clock.time_msec()):
+                            continue
+
                     for p in self.pushers[u].values():
                         p.on_new_receipts(min_stream_id, max_stream_id)
 

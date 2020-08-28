@@ -33,6 +33,7 @@ from synapse.api.errors import (
 )
 from synapse.api.room_versions import KNOWN_ROOM_VERSIONS
 from synapse.events import EventBase
+from synapse.handlers.account_validity import is_user_expired
 from synapse.logging import opentracing as opentracing
 from synapse.types import StateMap, UserID
 from synapse.util.caches import register_cache
@@ -222,11 +223,7 @@ class Auth(object):
             # Deny the request if the user account has expired.
             if self._account_validity.enabled and not allow_expired:
                 user_id = user.to_string()
-                expiration_ts = yield self.store.get_expiration_ts_for_user(user_id)
-                if (
-                    expiration_ts is not None
-                    and self.clock.time_msec() >= expiration_ts
-                ):
+                if is_user_expired(user_id, self.store, self.clock.time_msec()):
                     raise AuthError(
                         403, "User account has expired", errcode=Codes.EXPIRED_ACCOUNT
                     )
