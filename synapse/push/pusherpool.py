@@ -227,7 +227,8 @@ class PusherPool:
                 if u in self.pushers:
                     # Don't push if the user account has expired
                     if self._account_validity.enabled:
-                        if yield is_account_expired(u, self.store, self.clock.time_msec()):
+                        expired = yield is_account_expired(u, self.store, self.clock.time_msec())
+                        if expired:
                             continue
 
                     for p in self.pushers[u].values():
