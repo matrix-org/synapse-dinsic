@@ -223,7 +223,7 @@ class Auth(object):
             # Deny the request if the user account has expired.
             if self._account_validity.enabled and not allow_expired:
                 user_id = user.to_string()
-                expired = is_account_expired(
+                expired = yield is_account_expired(
                     user_id, self.store, self.clock.time_msec()
                 )
                 if expired:

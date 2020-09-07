@@ -302,7 +302,18 @@ class AccountValidityHandler(object):
 
 
 @defer.inlineCallbacks
-def is_account_expired(user_id, store, current_ts):
+def is_account_expired(user_id: str, store, current_ts: int):
+    """
+    Returns whether an user account is expired.
+
+    Args:
+        user_id: The user's ID
+        store: Homeserver datastore
+        current_ts: The current timestamp
+
+    Returns:
+        Deferred[bool]: whether the user account has expired
+    """
     expiration_ts = yield store.get_expiration_ts_for_user(user_id)
     if expiration_ts is not None and current_ts >= expiration_ts:
         return True
