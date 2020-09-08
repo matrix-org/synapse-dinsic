@@ -12,15 +12,15 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
 import email.utils
+from typing import Dict
 
 from twisted.internet import defer
 
 from synapse.api.constants import EventTypes, JoinRules, Membership, RoomCreationPreset
 from synapse.api.errors import SynapseError
 from synapse.config._base import ConfigError
-from synapse.types import get_domain_from_id
+from synapse.types import Requester, get_domain_from_id
 
 ACCESS_RULES_TYPE = "im.vector.room.access_rules"
 ACCESS_RULE_RESTRICTED = "restricted"
@@ -158,6 +158,10 @@ class RoomAccessRules(object):
         if not allowed:
             raise SynapseError(400, "Invalid power levels content override")
 
+        use_default_power_levels = True
+        if config.get("power_level_content_override"):
+            use_default_power_levels = False
+
         # Second loop for events we need to know the current rule to process.
         for event in config.get("initial_state", []):
             if event["type"] == EventTypes.PowerLevels:
@@ -167,7 +171,43 @@ class RoomAccessRules(object):
                 if not allowed:
                     raise SynapseError(400, "Invalid power levels content")
 
+                use_default_power_levels = False
+
+        # If power levels were not overridden by the user, override with DINUM's preferred
+        # defaults instead
+        if use_default_power_levels:
+            config["power_level_content_override"] = self._get_default_power_levels(
+                requester
+            )
+
         return True
+
+    # If power levels are not overridden by the user during room creation, the following
+    # rules are used instead. Changes from Synapse's default power levels are noted.
+    #
+    # The same power levels are currently applied regardless of room preset.
+    @staticmethod
+    def _get_default_power_levels(requester: Requester) -> Dict:
+        return {
+            "users": {requester.user.to_string(): 100},
+            "users_default": 0,
+            "events": {
+                EventTypes.Name: 50,
+                EventTypes.PowerLevels: 100,
+                EventTypes.RoomHistoryVisibility: 100,
+                EventTypes.CanonicalAlias: 50,
+                EventTypes.RoomAvatar: 50,
+                EventTypes.Tombstone: 100,
+                EventTypes.ServerACL: 100,
+                EventTypes.RoomEncryption: 100,
+            },
+            "events_default": 0,
+            "state_default": 100,  # Admins should be the only ones to perform other tasks
+            "ban": 50,
+            "kick": 50,
+            "redact": 50,
+            "invite": 50,  # All rooms should require mod to invite, even private
+        }
 
     @defer.inlineCallbacks
     def check_threepid_can_be_invited(self, medium, address, state_events):
