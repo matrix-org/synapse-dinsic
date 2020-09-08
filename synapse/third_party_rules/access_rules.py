@@ -20,7 +20,7 @@ from twisted.internet import defer
 from synapse.api.constants import EventTypes, JoinRules, Membership, RoomCreationPreset
 from synapse.api.errors import SynapseError
 from synapse.config._base import ConfigError
-from synapse.types import Requester, get_domain_from_id
+from synapse.types import get_domain_from_id
 
 ACCESS_RULES_TYPE = "im.vector.room.access_rules"
 ACCESS_RULE_RESTRICTED = "restricted"
@@ -177,7 +177,7 @@ class RoomAccessRules(object):
         # defaults instead
         if use_default_power_levels:
             config["power_level_content_override"] = self._get_default_power_levels(
-                requester
+                requester.user.to_string()
             )
 
         return True
@@ -187,9 +187,9 @@ class RoomAccessRules(object):
     #
     # The same power levels are currently applied regardless of room preset.
     @staticmethod
-    def _get_default_power_levels(requester: Requester) -> Dict:
+    def _get_default_power_levels(user_id: str) -> Dict:
         return {
-            "users": {requester.user.to_string(): 100},
+            "users": {user_id: 100},
             "users_default": 0,
             "events": {
                 EventTypes.Name: 50,
@@ -262,7 +262,9 @@ class RoomAccessRules(object):
         rule = self._get_rule_from_state(state_events)
 
         if event.type == EventTypes.PowerLevels:
-            return self._is_power_level_content_allowed(event.content, rule)
+            return self._is_power_level_content_allowed(
+                event.content, rule, on_room_creation=False
+            )
 
         if event.type == EventTypes.Member or event.type == EventTypes.ThirdPartyInvite:
             return self._on_membership_or_invite(event, rule, state_events)
@@ -453,7 +455,9 @@ class RoomAccessRules(object):
 
         return True
 
-    def _is_power_level_content_allowed(self, content, access_rule):
+    def _is_power_level_content_allowed(
+        self, content, access_rule, on_room_creation=True
+    ):
         """Check if a given power levels event is permitted under the given access rule.
 
         It shouldn't be allowed if it either changes the default PL to a non-0 value or
@@ -463,9 +467,22 @@ class RoomAccessRules(object):
         Args:
             content (dict[]): The content of the m.room.power_levels event to check.
             access_rule (str): The access rule in place in this room.
+            on_room_creation (bool): True if this call is happening during a room's
+                creation, False otherwise.
+
         Returns:
             bool, True if the event can be allowed, False otherwise.
         """
+        # Only enforce these rules during room creation
+        if on_room_creation:
+            # If invite requirements are <PL50
+            if content.get("invite", 50) < 50:
+                return False
+
+            # If "other" state requirements are <PL100
+            if content.get("state_default", 100) < 100:
+                return False
+
         # Check if we need to apply the restrictions with the current rule.
         if access_rule not in RULES_WITH_RESTRICTED_POWER_LEVELS:
             return True
