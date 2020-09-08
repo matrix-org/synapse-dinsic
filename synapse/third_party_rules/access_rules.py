@@ -333,10 +333,9 @@ class RoomAccessRules(object):
         prev_rule = prev_rules_event.content.get("rule")
 
         # Currently, we can only go from "restricted" to "unrestricted".
-        if prev_rule == ACCESS_RULE_RESTRICTED and new_rule == ACCESS_RULE_UNRESTRICTED:
-            return True
-
-        return False
+        return (
+            prev_rule == ACCESS_RULE_RESTRICTED and new_rule == ACCESS_RULE_UNRESTRICTED
+        )
 
     def _on_membership_or_invite(
         self,
