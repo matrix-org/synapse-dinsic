@@ -217,20 +217,20 @@ class RoomAccessRules(object):
         rule = self._get_rule_from_state(state_events)
 
         if medium != "email":
-            defer.returnValue(False)
+            return False
 
         if rule != ACCESS_RULE_RESTRICTED:
             # Only "restricted" requires filtering 3PID invites. We don't need to do
             # anything for "direct" here, because only "restricted" requires filtering
             # based on the HS the address is mapped to.
-            defer.returnValue(True)
+            return True
 
         parsed_address = email.utils.parseaddr(address)[1]
         if parsed_address != address:
             # Avoid reproducing the security issue described here:
             # https://matrix.org/blog/2019/04/18/security-update-sydent-1-0-2
             # It's probably not worth it but let's just be overly safe here.
-            defer.returnValue(False)
+            return False
 
         # Get the HS this address belongs to from the identity server.
         res = yield self.http_client.get_json(
@@ -240,11 +240,11 @@ class RoomAccessRules(object):
 
         # Look for a domain that's not forbidden from being invited.
         if not res.get("hs"):
-            defer.returnValue(False)
+            return False
         if res.get("hs") in self.domains_forbidden_when_restricted:
-            defer.returnValue(False)
+            return False
 
-        defer.returnValue(True)
+        return True
 
     def check_event_allowed(
         self, event: EventBase, state_events: Dict[Tuple[str, str], EventBase],
