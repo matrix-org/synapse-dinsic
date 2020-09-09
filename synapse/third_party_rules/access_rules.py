@@ -25,14 +25,18 @@ from synapse.http.client import SimpleHttpClient
 from synapse.types import Requester, get_domain_from_id
 
 ACCESS_RULES_TYPE = "im.vector.room.access_rules"
-ACCESS_RULE_RESTRICTED = "restricted"
-ACCESS_RULE_UNRESTRICTED = "unrestricted"
-ACCESS_RULE_DIRECT = "direct"
+
+
+class AccessRules:
+    DIRECT = "direct"
+    RESTRICTED = "restricted"
+    UNRESTRICTED = "unrestricted"
+
 
 VALID_ACCESS_RULES = (
-    ACCESS_RULE_DIRECT,
-    ACCESS_RULE_RESTRICTED,
-    ACCESS_RULE_UNRESTRICTED,
+    AccessRules.DIRECT,
+    AccessRules.RESTRICTED,
+    AccessRules.UNRESTRICTED,
 )
 
 # Rules to which we need to apply the power levels restrictions.
@@ -46,7 +50,7 @@ VALID_ACCESS_RULES = (
 #  * the default power level for users (users_default) being set to anything other than 0.
 #  * a non-default power level being assigned to any user which would be forbidden from
 #     joining a restricted room.
-RULES_WITH_RESTRICTED_POWER_LEVELS = (ACCESS_RULE_UNRESTRICTED,)
+RULES_WITH_RESTRICTED_POWER_LEVELS = (AccessRules.UNRESTRICTED,)
 
 
 class RoomAccessRules(object):
@@ -136,9 +140,8 @@ class RoomAccessRules(object):
                 if access_rule not in VALID_ACCESS_RULES:
                     raise SynapseError(400, "Invalid access rule")
 
-                # Make sure the rule is "direct" if the room is a direct chat.
-                if (is_direct and access_rule != ACCESS_RULE_DIRECT) or (
-                    access_rule == ACCESS_RULE_DIRECT and not is_direct
+                if (is_direct and access_rule != AccessRules.DIRECT) or (
+                    access_rule == AccessRules.DIRECT and not is_direct
                 ):
                     raise SynapseError(400, "Invalid access rule")
 
@@ -149,12 +152,12 @@ class RoomAccessRules(object):
             # If there's no access rules event in the initial state, create one with the
             # default setting.
             if is_direct:
-                default_rule = ACCESS_RULE_DIRECT
+                default_rule = AccessRules.DIRECT
             else:
                 # If the default value for non-direct chat changes, we should make another
                 # case here for rooms created with either a "public" join_rule or the
                 # "public_chat" preset to make sure those keep defaulting to "restricted"
-                default_rule = ACCESS_RULE_RESTRICTED
+                default_rule = AccessRules.RESTRICTED
 
             if not config.get("initial_state"):
                 config["initial_state"] = []
@@ -174,7 +177,7 @@ class RoomAccessRules(object):
         # a "public" join rule, the access rule must be "restricted").
         if (
             join_rule == JoinRules.PUBLIC or preset == RoomCreationPreset.PUBLIC_CHAT
-        ) and access_rule != ACCESS_RULE_RESTRICTED:
+        ) and access_rule != AccessRules.RESTRICTED:
             raise SynapseError(400, "Invalid access rule")
 
         # Check if the creator can override values for the power levels.
@@ -219,7 +222,7 @@ class RoomAccessRules(object):
         if medium != "email":
             return False
 
-        if rule != ACCESS_RULE_RESTRICTED:
+        if rule != AccessRules.RESTRICTED:
             # Only "restricted" requires filtering 3PID invites. We don't need to do
             # anything for "direct" here, because only "restricted" requires filtering
             # based on the HS the address is mapped to.
@@ -311,11 +314,11 @@ class RoomAccessRules(object):
         # We must not allow rooms with the "public" join rule to be given any other access
         # rule than "restricted".
         join_rule = self._get_join_rule_from_state(state_events)
-        if join_rule == JoinRules.PUBLIC and new_rule != ACCESS_RULE_RESTRICTED:
+        if join_rule == JoinRules.PUBLIC and new_rule != AccessRules.RESTRICTED:
             return False
 
         # Make sure we don't apply "direct" if the room has more than two members.
-        if new_rule == ACCESS_RULE_DIRECT:
+        if new_rule == AccessRules.DIRECT:
             existing_members, threepid_tokens = self._get_members_and_tokens_from_state(
                 state_events
             )
@@ -334,7 +337,7 @@ class RoomAccessRules(object):
 
         # Currently, we can only go from "restricted" to "unrestricted".
         return (
-            prev_rule == ACCESS_RULE_RESTRICTED and new_rule == ACCESS_RULE_UNRESTRICTED
+            prev_rule == AccessRules.RESTRICTED and new_rule == AccessRules.UNRESTRICTED
         )
 
     def _on_membership_or_invite(
@@ -355,11 +358,11 @@ class RoomAccessRules(object):
         Returns:
             Whether the event is allowed.
         """
-        if rule == ACCESS_RULE_RESTRICTED:
+        if rule == AccessRules.RESTRICTED:
             ret = self._on_membership_or_invite_restricted(event)
-        elif rule == ACCESS_RULE_UNRESTRICTED:
+        elif rule == AccessRules.UNRESTRICTED:
             ret = self._on_membership_or_invite_unrestricted()
-        elif rule == ACCESS_RULE_DIRECT:
+        elif rule == AccessRules.DIRECT:
             ret = self._on_membership_or_invite_direct(event, state_events)
         else:
             # We currently apply the default (restricted) if we don't know the rule, we
@@ -529,7 +532,7 @@ class RoomAccessRules(object):
             Whether the change is allowed.
         """
         if event.content.get("join_rule") == JoinRules.PUBLIC:
-            return rule == ACCESS_RULE_RESTRICTED
+            return rule == AccessRules.RESTRICTED
 
         return True
 
@@ -545,7 +548,7 @@ class RoomAccessRules(object):
         Returns:
             Whether the event is allowed.
         """
-        return rule != ACCESS_RULE_DIRECT
+        return rule != AccessRules.DIRECT
 
     def _on_room_name_change(self, event: EventBase, rule: str) -> bool:
         """Check whether a change of room name is allowed.
@@ -559,7 +562,7 @@ class RoomAccessRules(object):
         Returns:
             Whether the event is allowed.
         """
-        return rule != ACCESS_RULE_DIRECT
+        return rule != AccessRules.DIRECT
 
     def _on_room_topic_change(self, event: EventBase, rule: str) -> bool:
         """Check whether a change of room topic is allowed.
@@ -573,7 +576,7 @@ class RoomAccessRules(object):
         Returns:
             Whether the event is allowed.
         """
-        return rule != ACCESS_RULE_DIRECT
+        return rule != AccessRules.DIRECT
 
     @staticmethod
     def _get_rule_from_state(
@@ -590,7 +593,7 @@ class RoomAccessRules(object):
         """
         access_rules = state_events.get((ACCESS_RULES_TYPE, ""))
         if access_rules is None:
-            return ACCESS_RULE_RESTRICTED
+            return AccessRules.RESTRICTED
 
         return access_rules.content.get("rule")
 
