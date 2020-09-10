@@ -22,7 +22,7 @@ from synapse.api.errors import SynapseError
 from synapse.config._base import ConfigError
 from synapse.events import EventBase
 from synapse.http.client import SimpleHttpClient
-from synapse.types import Requester, get_domain_from_id
+from synapse.types import Requester, StateMap, get_domain_from_id
 
 ACCESS_RULES_TYPE = "im.vector.room.access_rules"
 
@@ -200,7 +200,7 @@ class RoomAccessRules(object):
 
     @defer.inlineCallbacks
     def check_threepid_can_be_invited(
-        self, medium: str, address: str, state_events: Dict[Tuple[str, str], EventBase],
+        self, medium: str, address: str, state_events: StateMap[EventBase],
     ) -> bool:
         """Implements synapse.events.ThirdPartyEventRules.check_threepid_can_be_invited.
 
@@ -250,7 +250,7 @@ class RoomAccessRules(object):
         return True
 
     def check_event_allowed(
-        self, event: EventBase, state_events: Dict[Tuple[str, str], EventBase],
+        self, event: EventBase, state_events: StateMap[EventBase],
     ) -> bool:
         """Implements synapse.events.ThirdPartyEventRules.check_event_allowed.
 
@@ -292,7 +292,7 @@ class RoomAccessRules(object):
         return True
 
     def _on_rules_change(
-        self, event: EventBase, state_events: Dict[Tuple[str, str], EventBase],
+        self, event: EventBase, state_events: StateMap[EventBase],
     ) -> bool:
         """Implement the checks and behaviour specified on allowing or forbidding a new
         im.vector.room.access_rules event.
@@ -341,10 +341,7 @@ class RoomAccessRules(object):
         )
 
     def _on_membership_or_invite(
-        self,
-        event: EventBase,
-        rule: str,
-        state_events: Dict[Tuple[str, str], EventBase],
+        self, event: EventBase, rule: str, state_events: StateMap[EventBase],
     ) -> bool:
         """Applies the correct rule for incoming m.room.member and
         m.room.third_party_invite events.
@@ -410,7 +407,7 @@ class RoomAccessRules(object):
         return True
 
     def _on_membership_or_invite_direct(
-        self, event: EventBase, state_events: Dict[Tuple[str, str], EventBase],
+        self, event: EventBase, state_events: StateMap[EventBase],
     ) -> bool:
         """Implements the checks and behaviour specified for the "direct" rule.
 
@@ -579,9 +576,7 @@ class RoomAccessRules(object):
         return rule != AccessRules.DIRECT
 
     @staticmethod
-    def _get_rule_from_state(
-        state_events: Dict[Tuple[str, str], EventBase]
-    ) -> Optional[str]:
+    def _get_rule_from_state(state_events: StateMap[EventBase]) -> Optional[str]:
         """Extract the rule to be applied from the given set of state events.
 
         Args:
@@ -598,9 +593,7 @@ class RoomAccessRules(object):
         return access_rules.content.get("rule")
 
     @staticmethod
-    def _get_join_rule_from_state(
-        state_events: Dict[Tuple[str, str], EventBase]
-    ) -> Optional[str]:
+    def _get_join_rule_from_state(state_events: StateMap[EventBase]) -> Optional[str]:
         """Extract the room's join rule from the given set of state events.
 
         Args:
@@ -618,7 +611,7 @@ class RoomAccessRules(object):
 
     @staticmethod
     def _get_members_and_tokens_from_state(
-        state_events: Dict[Tuple[str, str], EventBase],
+        state_events: StateMap[EventBase],
     ) -> Tuple[List[str], List[str]]:
         """Retrieves the list of users that have a m.room.member event in the room,
         as well as 3PID invites tokens in the room.
