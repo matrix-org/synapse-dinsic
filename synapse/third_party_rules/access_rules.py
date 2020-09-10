@@ -263,7 +263,7 @@ class RoomAccessRules(object):
                 State events in the room the event originated from.
 
         Returns:
-            Whether the event is allowed.
+            True if the event can be allowed, False otherwise.
         """
         if event.type == ACCESS_RULES_TYPE:
             return self._on_rules_change(event, state_events)
@@ -303,7 +303,7 @@ class RoomAccessRules(object):
                 State events in the room before the event was sent.
 
         Returns:
-            Whether the event is allowed.
+            True if the event can be allowed, False otherwise.
         """
         new_rule = event.content.get("rule")
 
@@ -353,7 +353,7 @@ class RoomAccessRules(object):
                 The state of the room before the event was sent.
 
         Returns:
-            Whether the event is allowed.
+            True if the event can be allowed, False otherwise.
         """
         if rule == AccessRules.RESTRICTED:
             ret = self._on_membership_or_invite_restricted(event)
@@ -378,7 +378,7 @@ class RoomAccessRules(object):
             event: The event to check.
 
         Returns:
-            Whether the event is allowed.
+            True if the event can be allowed, False otherwise.
         """
         # We're not applying the rules on m.room.third_party_member events here because
         # the filtering on threepids is done in check_threepid_can_be_invited, which is
@@ -402,7 +402,7 @@ class RoomAccessRules(object):
         "unrestricted" currently means that every event is allowed.
 
         Returns:
-            Whether the event is allowed.
+            True if the event can be allowed, False otherwise.
         """
         return True
 
@@ -420,7 +420,7 @@ class RoomAccessRules(object):
                 The state of the room before the event was sent.
 
         Returns:
-            Whether the event is allowed.
+            True if the event can be allowed, False otherwise.
         """
         # Get the room memberships and 3PID invite tokens from the room's state.
         existing_members, threepid_tokens = self._get_members_and_tokens_from_state(
@@ -543,7 +543,7 @@ class RoomAccessRules(object):
             rule: The name of the rule to apply.
 
         Returns:
-            Whether the event is allowed.
+            True if the event can be allowed, False otherwise.
         """
         return rule != AccessRules.DIRECT
 
@@ -557,7 +557,7 @@ class RoomAccessRules(object):
             rule: The name of the rule to apply.
 
         Returns:
-            Whether the event is allowed.
+            True if the event can be allowed, False otherwise.
         """
         return rule != AccessRules.DIRECT
 
@@ -571,7 +571,7 @@ class RoomAccessRules(object):
             rule: The name of the rule to apply.
 
         Returns:
-            Whether the event is allowed.
+            True if the event can be allowed, False otherwise.
         """
         return rule != AccessRules.DIRECT
 
