@@ -110,6 +110,10 @@ class RoomAccessRules(object):
         If yes, make sure the event is correct. Otherwise, append an event with the
         default rule to the initial state.
 
+        Checks if a m.rooms.power_levels event is being set during room creation.
+        If yes, make sure the event is allowed. Otherwise, append an event with custom
+        default rules to the initial state.
+
         Args:
             requester: The user who is making the createRoom request.
             config: The createRoom config dict provided by the user.
