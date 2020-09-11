@@ -24,10 +24,8 @@ from synapse.api.constants import EventTypes, JoinRules, RoomCreationPreset
 from synapse.rest import admin
 from synapse.rest.client.v1 import login, room
 from synapse.third_party_rules.access_rules import (
-    ACCESS_RULE_DIRECT,
-    ACCESS_RULE_RESTRICTED,
-    ACCESS_RULE_UNRESTRICTED,
     ACCESS_RULES_TYPE,
+    AccessRules,
     RoomAccessRules,
 )
 
@@ -108,7 +106,7 @@ class RoomAccessTestCase(unittest.HomeserverTestCase):
         self.tok = self.login("kermit", "monkey")
 
         self.restricted_room = self.create_room()
-        self.unrestricted_room = self.create_room(rule=ACCESS_RULE_UNRESTRICTED)
+        self.unrestricted_room = self.create_room(rule=AccessRules.UNRESTRICTED)
         self.direct_rooms = [
             self.create_room(direct=True),
             self.create_room(direct=True),
@@ -126,40 +124,40 @@ class RoomAccessTestCase(unittest.HomeserverTestCase):
         )
 
     def test_create_room_no_rule(self):
-        """Tests that creating a room with no rule will set the default value."""
+        """Tests that creating a room with no rule will set the default."""
         room_id = self.create_room()
         rule = self.current_rule_in_room(room_id)
 
-        self.assertEqual(rule, ACCESS_RULE_RESTRICTED)
+        self.assertEqual(rule, AccessRules.RESTRICTED)
 
     def test_create_room_direct_no_rule(self):
-        """Tests that creating a direct room with no rule will set the default value."""
+        """Tests that creating a direct room with no rule will set the default."""
         room_id = self.create_room(direct=True)
         rule = self.current_rule_in_room(room_id)
 
-        self.assertEqual(rule, ACCESS_RULE_DIRECT)
+        self.assertEqual(rule, AccessRules.DIRECT)
 
     def test_create_room_valid_rule(self):
-        """Tests that creating a room with a valid rule will set the right value."""
-        room_id = self.create_room(rule=ACCESS_RULE_UNRESTRICTED)
+        """Tests that creating a room with a valid rule will set the right."""
+        room_id = self.create_room(rule=AccessRules.UNRESTRICTED)
         rule = self.current_rule_in_room(room_id)
 
-        self.assertEqual(rule, ACCESS_RULE_UNRESTRICTED)
+        self.assertEqual(rule, AccessRules.UNRESTRICTED)
 
     def test_create_room_invalid_rule(self):
         """Tests that creating a room with an invalid rule will set fail."""
-        self.create_room(rule=ACCESS_RULE_DIRECT, expected_code=400)
+        self.create_room(rule=AccessRules.DIRECT, expected_code=400)
 
     def test_create_room_direct_invalid_rule(self):
         """Tests that creating a direct room with an invalid rule will fail.
         """
-        self.create_room(direct=True, rule=ACCESS_RULE_RESTRICTED, expected_code=400)
+        self.create_room(direct=True, rule=AccessRules.RESTRICTED, expected_code=400)
 
     def test_create_room_default_power_level_rules(self):
         """Tests that a room created with no power level overrides instead uses the dinum
         defaults
         """
-        room_id = self.create_room(direct=True, rule=ACCESS_RULE_DIRECT)
+        room_id = self.create_room(direct=True, rule=AccessRules.DIRECT)
         power_levels = self.helper.get_state(room_id, "m.room.power_levels", self.tok)
 
         # Inviting another user should require PL50, even in private rooms
@@ -175,7 +173,7 @@ class RoomAccessTestCase(unittest.HomeserverTestCase):
 
         self.create_room(
             direct=True,
-            rule=ACCESS_RULE_DIRECT,
+            rule=AccessRules.DIRECT,
             initial_state=[
                 {"type": "m.room.power_levels", "content": modified_power_levels}
             ],
@@ -188,7 +186,7 @@ class RoomAccessTestCase(unittest.HomeserverTestCase):
         """
         # Creates a room with the default power levels
         room_id = self.create_room(
-            direct=True, rule=ACCESS_RULE_DIRECT, expected_code=200,
+            direct=True, rule=AccessRules.DIRECT, expected_code=200,
         )
 
         # Attempt to drop invite and state_default power levels after the fact
@@ -209,7 +207,7 @@ class RoomAccessTestCase(unittest.HomeserverTestCase):
         # rule to restricted.
         preset_room_id = self.create_room(preset=RoomCreationPreset.PUBLIC_CHAT)
         self.assertEqual(
-            self.current_rule_in_room(preset_room_id), ACCESS_RULE_RESTRICTED
+            self.current_rule_in_room(preset_room_id), AccessRules.RESTRICTED
         )
 
         # Creating a room with the public join rule in its initial state should succeed
@@ -223,21 +221,21 @@ class RoomAccessTestCase(unittest.HomeserverTestCase):
             ]
         )
         self.assertEqual(
-            self.current_rule_in_room(init_state_room_id), ACCESS_RULE_RESTRICTED
+            self.current_rule_in_room(init_state_room_id), AccessRules.RESTRICTED
         )
 
         # Changing access rule to unrestricted should fail.
         self.change_rule_in_room(
-            preset_room_id, ACCESS_RULE_UNRESTRICTED, expected_code=403
+            preset_room_id, AccessRules.UNRESTRICTED, expected_code=403
         )
         self.change_rule_in_room(
-            init_state_room_id, ACCESS_RULE_UNRESTRICTED, expected_code=403
+            init_state_room_id, AccessRules.UNRESTRICTED, expected_code=403
         )
 
         # Changing access rule to direct should fail.
-        self.change_rule_in_room(preset_room_id, ACCESS_RULE_DIRECT, expected_code=403)
+        self.change_rule_in_room(preset_room_id, AccessRules.DIRECT, expected_code=403)
         self.change_rule_in_room(
-            init_state_room_id, ACCESS_RULE_DIRECT, expected_code=403
+            init_state_room_id, AccessRules.DIRECT, expected_code=403
         )
 
         # Changing join rule to public in an unrestricted room should fail.
@@ -253,12 +251,12 @@ class RoomAccessTestCase(unittest.HomeserverTestCase):
         # restricted should fail.
         self.create_room(
             preset=RoomCreationPreset.PUBLIC_CHAT,
-            rule=ACCESS_RULE_UNRESTRICTED,
+            rule=AccessRules.UNRESTRICTED,
             expected_code=400,
         )
         self.create_room(
             preset=RoomCreationPreset.PUBLIC_CHAT,
-            rule=ACCESS_RULE_DIRECT,
+            rule=AccessRules.DIRECT,
             expected_code=400,
         )
 
@@ -271,7 +269,7 @@ class RoomAccessTestCase(unittest.HomeserverTestCase):
                     "content": {"join_rule": JoinRules.PUBLIC},
                 }
             ],
-            rule=ACCESS_RULE_UNRESTRICTED,
+            rule=AccessRules.UNRESTRICTED,
             expected_code=400,
         )
         self.create_room(
@@ -281,7 +279,7 @@ class RoomAccessTestCase(unittest.HomeserverTestCase):
                     "content": {"join_rule": JoinRules.PUBLIC},
                 }
             ],
-            rule=ACCESS_RULE_DIRECT,
+            rule=AccessRules.DIRECT,
             expected_code=400,
         )
 
@@ -491,40 +489,40 @@ class RoomAccessTestCase(unittest.HomeserverTestCase):
         # We can change the rule from restricted to unrestricted.
         self.change_rule_in_room(
             room_id=self.restricted_room,
-            new_rule=ACCESS_RULE_UNRESTRICTED,
+            new_rule=AccessRules.UNRESTRICTED,
             expected_code=200,
         )
 
         # We can't change the rule from restricted to direct.
         self.change_rule_in_room(
-            room_id=self.restricted_room, new_rule=ACCESS_RULE_DIRECT, expected_code=403
+            room_id=self.restricted_room, new_rule=AccessRules.DIRECT, expected_code=403
         )
 
         # We can't change the rule from unrestricted to restricted.
         self.change_rule_in_room(
             room_id=self.unrestricted_room,
-            new_rule=ACCESS_RULE_RESTRICTED,
+            new_rule=AccessRules.RESTRICTED,
             expected_code=403,
         )
 
         # We can't change the rule from unrestricted to direct.
         self.change_rule_in_room(
             room_id=self.unrestricted_room,
-            new_rule=ACCESS_RULE_DIRECT,
+            new_rule=AccessRules.DIRECT,
             expected_code=403,
         )
 
         # We can't change the rule from direct to restricted.
         self.change_rule_in_room(
             room_id=self.direct_rooms[0],
-            new_rule=ACCESS_RULE_RESTRICTED,
+            new_rule=AccessRules.RESTRICTED,
             expected_code=403,
         )
 
         # We can't change the rule from direct to unrestricted.
         self.change_rule_in_room(
             room_id=self.direct_rooms[0],
-            new_rule=ACCESS_RULE_UNRESTRICTED,
+            new_rule=AccessRules.UNRESTRICTED,
             expected_code=403,
         )
 
