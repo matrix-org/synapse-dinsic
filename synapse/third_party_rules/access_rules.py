@@ -533,6 +533,10 @@ class RoomAccessRules(object):
             Whether the content of the power levels event is valid.
         """
         # Only enforce these rules during room creation
+        #
+        # We want to allow admins to modify or fix the power levels in a room if they
+        # have a special circumstance, but still want to encourage a certain pattern during
+        # room creation.
         if on_room_creation:
             # If invite requirements are <PL50
             if content.get("invite", 50) < 50:
