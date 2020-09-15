@@ -14,8 +14,6 @@
 # limitations under the License.
 from typing import Callable
 
-from twisted.internet import defer
-
 from synapse.events import EventBase
 from synapse.module_api import ModuleApi
 from synapse.types import StateMap
@@ -67,8 +65,7 @@ class ThirdPartyEventRules(object):
         ret = await self.third_party_rules.check_event_allowed(event, state_events)
         return ret
 
-    @defer.inlineCallbacks
-    def on_create_room(self, requester, config, is_requester_admin):
+    async def on_create_room(self, requester, config, is_requester_admin):
         """Intercept requests to create room to allow, deny or update the
         request config.
 
@@ -84,7 +81,7 @@ class ThirdPartyEventRules(object):
         if self.third_party_rules is None:
             return True
 
-        ret = yield self.third_party_rules.on_create_room(
+        ret = await self.third_party_rules.on_create_room(
             requester, config, is_requester_admin
         )
         return ret
