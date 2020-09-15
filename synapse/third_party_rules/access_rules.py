@@ -395,7 +395,9 @@ class RoomAccessRules(object):
         if new_rule != AccessRules.RESTRICTED:
             # Block this change if this room is currently listed in the public rooms
             # directory
-            if await self.module_api.room_is_in_public_directory(event.room_id):
+            if await self.module_api.public_room_list_manager.room_is_in_public_room_list(
+                event.room_id
+            ):
                 return False
 
         prev_rules_event = state_events.get((ACCESS_RULES_TYPE, ""))
