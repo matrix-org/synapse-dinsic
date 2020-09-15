@@ -22,7 +22,7 @@ from twisted.internet import defer
 
 from synapse.api.constants import EventTypes, JoinRules, RoomCreationPreset
 from synapse.rest import admin
-from synapse.rest.client.v1 import login, room
+from synapse.rest.client.v1 import directory, login, room
 from synapse.third_party_rules.access_rules import (
     ACCESS_RULES_TYPE,
     AccessRules,
@@ -38,6 +38,7 @@ class RoomAccessTestCase(unittest.HomeserverTestCase):
         admin.register_servlets,
         login.register_servlets,
         room.register_servlets,
+        directory.register_servlets,
     ]
 
     def make_homeserver(self, reactor, clock):
@@ -200,7 +201,7 @@ class RoomAccessTestCase(unittest.HomeserverTestCase):
         )
 
     def test_public_room(self):
-        """Tests that it's not possible to have a room with the public join rule and an
+        """Tests that it's not possible to have a room listed in the public room list and an
         access rule that's not restricted.
         """
         # Creating a room with the public_chat preset should succeed and set the access
@@ -224,6 +225,25 @@ class RoomAccessTestCase(unittest.HomeserverTestCase):
             self.current_rule_in_room(init_state_room_id), AccessRules.RESTRICTED
         )
 
+        # List the rooms in the public room list
+        request, channel = self.make_request(
+            "PUT",
+            "/_matrix/client/r0/directory/list/room/%s" % (preset_room_id,),
+            {"visibility": "public"},
+            access_token=self.tok,
+        )
+        self.render(request)
+        self.assertEqual(channel.code, 200, channel.result)
+
+        request, channel = self.make_request(
+            "PUT",
+            "/_matrix/client/r0/directory/list/room/%s" % (init_state_room_id,),
+            {"visibility": "public"},
+            access_token=self.tok,
+        )
+        self.render(request)
+        self.assertEqual(channel.code, 200, channel.result)
+
         # Changing access rule to unrestricted should fail.
         self.change_rule_in_room(
             preset_room_id, AccessRules.UNRESTRICTED, expected_code=403
@@ -238,15 +258,6 @@ class RoomAccessTestCase(unittest.HomeserverTestCase):
             init_state_room_id, AccessRules.DIRECT, expected_code=403
         )
 
-        # Changing join rule to public in an unrestricted room should fail.
-        self.change_join_rule_in_room(
-            self.unrestricted_room, JoinRules.PUBLIC, expected_code=403
-        )
-        # Changing join rule to public in an direct room should fail.
-        self.change_join_rule_in_room(
-            self.direct_rooms[0], JoinRules.PUBLIC, expected_code=403
-        )
-
         # Creating a new room with the public_chat preset and an access rule that isn't
         # restricted should fail.
         self.create_room(
@@ -256,29 +267,6 @@ class RoomAccessTestCase(unittest.HomeserverTestCase):
         )
         self.create_room(
             preset=RoomCreationPreset.PUBLIC_CHAT,
-            rule=AccessRules.DIRECT,
-            expected_code=400,
-        )
-
-        # Creating a room with the public join rule in its initial state and an access
-        # rule that isn't restricted should fail.
-        self.create_room(
-            initial_state=[
-                {
-                    "type": "m.room.join_rules",
-                    "content": {"join_rule": JoinRules.PUBLIC},
-                }
-            ],
-            rule=AccessRules.UNRESTRICTED,
-            expected_code=400,
-        )
-        self.create_room(
-            initial_state=[
-                {
-                    "type": "m.room.join_rules",
-                    "content": {"join_rule": JoinRules.PUBLIC},
-                }
-            ],
             rule=AccessRules.DIRECT,
             expected_code=400,
         )
@@ -319,6 +307,14 @@ class RoomAccessTestCase(unittest.HomeserverTestCase):
             room_id=self.restricted_room,
             expected_code=200,
         )
+
+        # We are allowed to publish the room to the public rooms directory
+        url = "/_matrix/client/r0/directory/list/room/%s" % self.restricted_room
+        data = {"visibility": "public"}
+
+        request, channel = self.make_request("PUT", url, data, access_token=self.tok)
+        self.render(request)
+        self.assertEqual(channel.code, 200, channel.result)
 
     def test_direct(self):
         """Tests that, in direct mode, other users than the initial two can't be invited,
@@ -412,10 +408,20 @@ class RoomAccessTestCase(unittest.HomeserverTestCase):
         self.hs.config.rc_third_party_invite.burst_count = burst
         self.hs.config.rc_third_party_invite.per_second = per_second
 
+        # We can't publish the room to the public rooms directory
+        url = "/_matrix/client/r0/directory/list/room/%s" % self.direct_rooms[0]
+        data = {"visibility": "public"}
+
+        request, channel = self.make_request("PUT", url, data, access_token=self.tok)
+        self.render(request)
+        self.assertEqual(channel.code, 403, channel.result)
+
     def test_unrestricted(self):
         """Tests that, in unrestricted mode, we can invite whoever we want, but we can
         only change the power level of users that wouldn't be forbidden in restricted
         mode.
+        Additionally tests that the room cannot be published to the public rooms
+        directory.
         """
         # We can invite
         self.helper.invite(
@@ -482,6 +488,14 @@ class RoomAccessTestCase(unittest.HomeserverTestCase):
             expect_code=403,
         )
 
+        # We can't publish the room to the public rooms directory
+        url = "/_matrix/client/r0/directory/list/room/%s" % self.unrestricted_room
+        data = {"visibility": "public"}
+
+        request, channel = self.make_request("PUT", url, data, access_token=self.tok)
+        self.render(request)
+        self.assertEqual(channel.code, 403, channel.result)
+
     def test_change_rules(self):
         """Tests that we can only change the current rule from restricted to
         unrestricted.
@@ -524,6 +538,29 @@ class RoomAccessTestCase(unittest.HomeserverTestCase):
             room_id=self.direct_rooms[0],
             new_rule=AccessRules.UNRESTRICTED,
             expected_code=403,
+        )
+        # We can't publish a room to the public rooms directory and then change its rule
+        # to unrestricted
+
+        # Create a restricted room
+        test_room_id = self.create_room()
+
+        # Publish the room to the public rooms directory
+        url = "/_matrix/client/r0/directory/list/room/%s" % test_room_id
+        data = {"visibility": "public"}
+
+        request, channel = self.make_request("PUT", url, data, access_token=self.tok)
+        self.render(request)
+        self.assertEqual(channel.code, 200, channel.result)
+
+        # Attempt to switch the room to "unrestricted"
+        self.change_rule_in_room(
+            room_id=test_room_id, new_rule=AccessRules.UNRESTRICTED, expected_code=403
+        )
+
+        # Attempt to switch the room to "direct"
+        self.change_rule_in_room(
+            room_id=test_room_id, new_rule=AccessRules.DIRECT, expected_code=403
         )
 
     def test_change_room_avatar(self):
