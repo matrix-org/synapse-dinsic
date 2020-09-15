@@ -44,8 +44,7 @@ class ThirdPartyEventRules(object):
                 config=config, module_api=ModuleApi(hs, hs.get_auth_handler()),
             )
 
-    @defer.inlineCallbacks
-    def check_event_allowed(self, event, context):
+    async def check_event_allowed(self, event, context):
         """Check if a provided event should be allowed in the given context.
 
         Args:
@@ -58,14 +57,14 @@ class ThirdPartyEventRules(object):
         if self.third_party_rules is None:
             return True
 
-        prev_state_ids = yield context.get_prev_state_ids()
+        prev_state_ids = await context.get_prev_state_ids()
 
         # Retrieve the state events from the database.
         state_events = {}
         for key, event_id in prev_state_ids.items():
-            state_events[key] = yield self.store.get_event(event_id, allow_none=True)
+            state_events[key] = await self.store.get_event(event_id, allow_none=True)
 
-        ret = yield self.third_party_rules.check_event_allowed(event, state_events)
+        ret = await self.third_party_rules.check_event_allowed(event, state_events)
         return ret
 
     @defer.inlineCallbacks
