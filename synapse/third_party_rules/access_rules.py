@@ -22,7 +22,7 @@ from synapse.api.errors import SynapseError
 from synapse.config._base import ConfigError
 from synapse.events import EventBase
 from synapse.module_api import ModuleApi
-from synapse.types import Requester, StateMap, get_domain_from_id
+from synapse.types import Requester, StateMap, UserID, get_domain_from_id
 
 ACCESS_RULES_TYPE = "im.vector.room.access_rules"
 
@@ -430,7 +430,7 @@ class RoomAccessRules(object):
         if rule == AccessRules.RESTRICTED:
             ret = self._on_membership_or_invite_restricted(event)
         elif rule == AccessRules.UNRESTRICTED:
-            ret = self._on_membership_or_invite_unrestricted()
+            ret = self._on_membership_or_invite_unrestricted(event, state_events)
         elif rule == AccessRules.DIRECT:
             ret = self._on_membership_or_invite_direct(event, state_events)
         else:
@@ -468,7 +468,9 @@ class RoomAccessRules(object):
         invitee_domain = get_domain_from_id(event.state_key)
         return invitee_domain not in self.domains_forbidden_when_restricted
 
-    def _on_membership_or_invite_unrestricted(self) -> bool:
+    def _on_membership_or_invite_unrestricted(
+        self, event: EventBase, state_events: StateMap[EventBase]
+    ) -> bool:
         """Implements the checks and behaviour specified for the "unrestricted" rule.
 
         "unrestricted" currently means that every event is allowed.
@@ -476,6 +478,18 @@ class RoomAccessRules(object):
         Returns:
             True if the event can be allowed, False otherwise.
         """
+        # If this is a join or invite for a room that's not listed in the public room list,
+        # then deny if the target is an external user
+        if event.type == EventTypes.Member and event.membership == Membership.JOIN:
+            target_user = UserID.from_string(event.state_key)
+            if (
+                target_user.domain in self.domains_forbidden_when_restricted
+                and not self.module_api.public_room_list_manager.room_is_in_public_room_list(
+                    event.room_id
+                )
+            ):
+                return False
+
         return True
 
     def _on_membership_or_invite_direct(
