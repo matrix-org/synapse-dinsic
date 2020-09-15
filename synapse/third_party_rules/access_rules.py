@@ -357,7 +357,7 @@ class RoomAccessRules(object):
         # We need to know the rule to apply when processing the event types below.
         rule = self._get_rule_from_state(state_events)
 
-        # Deny adding a room to the public rooms list if it is not restricted
+        # Allow adding a room to the public rooms list only if it is restricted
         if new_visibility == "public":
             return rule == AccessRules.RESTRICTED
 
