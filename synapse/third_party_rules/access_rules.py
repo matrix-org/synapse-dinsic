@@ -17,7 +17,7 @@ from typing import Dict, List, Optional, Tuple
 
 from twisted.internet import defer
 
-from synapse.api.constants import EventTypes, Membership, RoomCreationPreset
+from synapse.api.constants import EventTypes, JoinRules, Membership, RoomCreationPreset
 from synapse.api.errors import SynapseError
 from synapse.config._base import ConfigError
 from synapse.events import EventBase
@@ -129,6 +129,7 @@ class RoomAccessRules(object):
         is_direct = config.get("is_direct")
         preset = config.get("preset")
         access_rule = None
+        join_rule = None
 
         # If there's a rules event in the initial state, check if it complies with the
         # spec for im.vector.room.access_rules and deny the request if not.
@@ -148,6 +149,9 @@ class RoomAccessRules(object):
                     access_rule == AccessRules.DIRECT and not is_direct
                 ):
                     raise SynapseError(400, "Invalid access rule")
+
+            if event["type"] == EventTypes.JoinRules:
+                join_rule = event["content"].get("join_rule")
 
         if access_rule is None:
             # If there's no access rules event in the initial state, create one with the
@@ -175,10 +179,11 @@ class RoomAccessRules(object):
 
         # Check that the preset in use is compatible with the access rule, whether it's
         # user-defined or the default.
+        #
+        # Direct rooms may not have their join_rules set to JoinRules.PUBLIC.
         if (
-            preset == RoomCreationPreset.PUBLIC_CHAT
-            and access_rule != AccessRules.RESTRICTED
-        ):
+            join_rule == JoinRules.PUBLIC or preset == RoomCreationPreset.PUBLIC_CHAT
+        ) and access_rule == AccessRules.DIRECT:
             raise SynapseError(400, "Invalid access rule")
 
         # Check if the creator can override values for the power levels.
@@ -610,9 +615,22 @@ class RoomAccessRules(object):
         return True
 
     def _on_join_rule_change(self, event: EventBase, rule: str) -> bool:
-        """Check whether a join rule change is allowed. A join rule change is always
-        allowed. This used to be denied in the case of when the new join rule is
-        "public" and the current access rule isn't "restricted".
+        """Check whether a join rule change is allowed.
+
+        A join rule change is always allowed unless the new join rule is "public" and
+        the current access rule is "direct".
+
+        The rationale is that external users (those whose server would be denied access
+        to rooms enforcing the "restricted" access rule) should always rely on non-
+        external users for access to rooms, therefore they shouldn't be able to access
+        rooms that don't require an invite to be joined.
+
+        Note that we currently rely on the default access rule being "restricted": during
+        room creation, the m.room.join_rules event will be sent *before* the
+        im.vector.room.access_rules one, so the access rule that will be considered here
+        in this case will be the default "restricted" one. This is fine since the
+        "restricted" access rule allows any value for the join rule, but we should keep
+        that in mind if we need to change the default access rule in the future
 
         Args:
             event: The event to check.
@@ -621,6 +639,9 @@ class RoomAccessRules(object):
         Returns:
             Whether the change is allowed.
         """
+        if event.content.get("join_rule") == JoinRules.PUBLIC:
+            return rule != AccessRules.DIRECT
+
         return True
 
     def _on_room_avatar_change(self, event: EventBase, rule: str) -> bool:
