@@ -492,6 +492,7 @@ class RoomAccessTestCase(unittest.HomeserverTestCase):
         )
 
         # We can change the rule from restricted to unrestricted.
+        # Note that this changes self.restricted_room to an unrestricted room
         self.change_rule_in_room(
             room_id=self.restricted_room,
             new_rule=AccessRules.UNRESTRICTED,
