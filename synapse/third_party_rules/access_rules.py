@@ -340,9 +340,10 @@ class RoomAccessRules(object):
         """Implements
         synapse.events.ThirdPartyEventRules.check_visibility_can_be_modified
 
-        Determines whether a room can be published, or removed from, the public rooms
-        directory. A room with access rule other than "restricted" may not be published
-        to the directory.
+        Determines whether a room can be published, or removed from, the public room
+        list. A room is published if its visibility is set to "public". Otherwise,
+        its visibility is "private". A room with access rule other than "restricted"
+        may not be published.
 
         Args:
             room_id: The ID of the room.
@@ -480,17 +481,15 @@ class RoomAccessRules(object):
         Returns:
             True if the event can be allowed, False otherwise.
         """
-        # If this is a join or invite for a room that's not listed in the public room list,
-        # then deny if the target is an external user
+        # If this is a join from a forbidden user and they don't have an invite to the
+        # room, then deny it
         if event.type == EventTypes.Member and event.membership == Membership.JOIN:
+            # Check if this user is from a forbidden server
             target_user = UserID.from_string(event.state_key)
-            if (
-                target_user.domain in self.domains_forbidden_when_restricted
-                and not self.module_api.public_room_list_manager.room_is_in_public_room_list(
-                    event.room_id
-                )
-            ):
-                return False
+            if target_user.domain in self.domains_forbidden_when_restricted:
+                # If so, they'll need an invite to join this room. Check if one exists
+                if not self._user_is_invited_to_room(event.state_key, state_events):
+                    return False
 
         return True
 
@@ -744,3 +743,28 @@ class RoomAccessRules(object):
         )
 
         return token == threepid_invite_token
+
+    def _user_is_invited_to_room(
+        self, user_id: str, state_events: StateMap[EventBase]
+    ) -> bool:
+        """Checks whether a given user has been invited to a room
+
+        A user has an invite for a room if there is a membership event of type "invite"
+        with their user ID as the state key contained in the room state.
+
+        Args:
+            user_id: The user to check.
+            state_events: The state events from the room.
+
+        Returns:
+            True if the user has been invited to the room, or False if they haven't.
+        """
+        for state_event in state_events:
+            if (
+                state_event.type == EventTypes.Member
+                and state_event.membership == Membership.INVITE
+                and state_event.state_key == user_id
+            ):
+                return True
+
+        return False
