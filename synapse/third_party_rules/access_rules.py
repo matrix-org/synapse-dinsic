@@ -481,8 +481,6 @@ class RoomAccessRules(object):
     ) -> bool:
         """Implements the checks and behaviour specified for the "unrestricted" rule.
 
-        "unrestricted" currently means that every event is allowed.
-
         Returns:
             True if the event can be allowed, False otherwise.
         """
@@ -619,18 +617,6 @@ class RoomAccessRules(object):
 
         A join rule change is always allowed unless the new join rule is "public" and
         the current access rule is "direct".
-
-        The rationale is that external users (those whose server would be denied access
-        to rooms enforcing the "restricted" access rule) should always rely on non-
-        external users for access to rooms, therefore they shouldn't be able to access
-        rooms that don't require an invite to be joined.
-
-        Note that we currently rely on the default access rule being "restricted": during
-        room creation, the m.room.join_rules event will be sent *before* the
-        im.vector.room.access_rules one, so the access rule that will be considered here
-        in this case will be the default "restricted" one. This is fine since the
-        "restricted" access rule allows any value for the join rule, but we should keep
-        that in mind if we need to change the default access rule in the future
 
         Args:
             event: The event to check.
@@ -770,8 +756,8 @@ class RoomAccessRules(object):
     ) -> bool:
         """Checks whether a given user has been invited to a room
 
-        A user has an invite for a room if there is a membership event of type "invite"
-        with their user ID as the state key contained in the room state.
+        A user has an invite for a room if its state contains a `m.room.member`
+        event with membership type "invite" and their user ID as the state key.
 
         Args:
             user_id: The user to check.
@@ -780,11 +766,11 @@ class RoomAccessRules(object):
         Returns:
             True if the user has been invited to the room, or False if they haven't.
         """
-        for state_event in state_events:
+        for (event_type, state_key), state_event in state_events.items():
             if (
-                state_event.type == EventTypes.Member
+                event_type == EventTypes.Member
+                and state_key == user_id
                 and state_event.membership == Membership.INVITE
-                and state_event.state_key == user_id
             ):
                 return True
 
