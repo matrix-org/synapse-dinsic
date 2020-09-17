@@ -263,12 +263,7 @@ class RoomAccessTestCase(unittest.HomeserverTestCase):
         )
 
         # Creating a new room with the public_chat preset and an access rule that isn't
-        # restricted should fail.
-        self.create_room(
-            preset=RoomCreationPreset.PUBLIC_CHAT,
-            rule=AccessRules.UNRESTRICTED,
-            expected_code=400,
-        )
+        # restricted or unrestricted should fail.
         self.create_room(
             preset=RoomCreationPreset.PUBLIC_CHAT,
             rule=AccessRules.DIRECT,
