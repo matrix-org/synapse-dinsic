@@ -22,7 +22,7 @@ from synapse.api.errors import SynapseError
 from synapse.config._base import ConfigError
 from synapse.events import EventBase
 from synapse.module_api import ModuleApi
-from synapse.types import Requester, StateMap, UserID, get_domain_from_id
+from synapse.types import Requester, StateMap, get_domain_from_id
 
 ACCESS_RULES_TYPE = "im.vector.room.access_rules"
 
@@ -490,8 +490,8 @@ class RoomAccessRules(object):
         # room, then deny it
         if event.type == EventTypes.Member and event.membership == Membership.JOIN:
             # Check if this user is from a forbidden server
-            target_user = UserID.from_string(event.state_key)
-            if target_user.domain in self.domains_forbidden_when_restricted:
+            target_domain = get_domain_from_id(event.state_key)
+            if target_domain in self.domains_forbidden_when_restricted:
                 # If so, they'll need an invite to join this room. Check if one exists
                 if not self._user_is_invited_to_room(event.state_key, state_events):
                     return False
