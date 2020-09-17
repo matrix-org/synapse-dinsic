@@ -731,7 +731,7 @@ class RoomAccessTestCase(unittest.HomeserverTestCase):
 
         It tests that:
             * forbidden users cannot join restricted rooms.
-            * forbidden users can join unrestricted rooms if they have an invite.
+            * forbidden users can only join unrestricted rooms if they have an invite.
         """
         event_creator = self.hs.get_event_creation_handler()
 
@@ -784,7 +784,7 @@ class RoomAccessTestCase(unittest.HomeserverTestCase):
         )
         self.assertTrue(can_join)
 
-        # Test that forbidden users can join unrestricted rooms if they have an invite
+        # Test that forbidden users can only join unrestricted rooms if they have an invite
 
         # Recreate the forbidden join event for the unrestricted room instead
         forbidden_join_event, forbidden_join_event_context = self.get_success(

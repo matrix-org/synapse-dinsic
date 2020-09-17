@@ -481,6 +481,8 @@ class RoomAccessRules(object):
     ) -> bool:
         """Implements the checks and behaviour specified for the "unrestricted" rule.
 
+        "unrestricted" currently means that forbidden users cannot join without an invite.
+
         Returns:
             True if the event can be allowed, False otherwise.
         """
@@ -757,7 +759,7 @@ class RoomAccessRules(object):
         """Checks whether a given user has been invited to a room
 
         A user has an invite for a room if its state contains a `m.room.member`
-        event with membership type "invite" and their user ID as the state key.
+        event with membership "invite" and their user ID as the state key.
 
         Args:
             user_id: The user to check.
