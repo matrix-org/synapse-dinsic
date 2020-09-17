@@ -21,7 +21,6 @@ from mock import Mock
 from twisted.internet import defer
 
 from synapse.api.constants import EventTypes, JoinRules, Membership, RoomCreationPreset
-from synapse.module_api import ModuleApi
 from synapse.rest import admin
 from synapse.rest.client.v1 import directory, login, room
 from synapse.third_party_rules.access_rules import (
@@ -45,14 +44,13 @@ class RoomAccessTestCase(unittest.HomeserverTestCase):
 
     def make_homeserver(self, reactor, clock):
         config = self.default_config()
-        self.access_rules_config = {
-            "domains_forbidden_when_restricted": ["forbidden_domain"],
-            "id_server": "testis",
-        }
 
         config["third_party_event_rules"] = {
             "module": "synapse.third_party_rules.access_rules.RoomAccessRules",
-            "config": self.access_rules_config,
+            "config": {
+                "domains_forbidden_when_restricted": ["forbidden_domain"],
+                "id_server": "testis",
+            },
         }
         config["trusted_third_party_id_servers"] = ["testis"]
 
@@ -103,12 +101,13 @@ class RoomAccessTestCase(unittest.HomeserverTestCase):
             mock_http_client
         )
 
+        self.third_party_event_rules = self.hs.get_third_party_event_rules()
+
         return self.hs
 
     def prepare(self, reactor, clock, homeserver):
         self.user_id = self.register_user("kermit", "monkey")
         self.tok = self.login("kermit", "monkey")
-        self.access_rules = AccessRules()
 
         self.restricted_room = self.create_room()
         self.unrestricted_room = self.create_room(rule=AccessRules.UNRESTRICTED)
@@ -229,7 +228,7 @@ class RoomAccessTestCase(unittest.HomeserverTestCase):
             self.current_rule_in_room(init_state_room_id), AccessRules.RESTRICTED
         )
 
-        # List the rooms in the public room list
+        # List preset_room_id in the public room list
         request, channel = self.make_request(
             "PUT",
             "/_matrix/client/r0/directory/list/room/%s" % (preset_room_id,),
@@ -239,6 +238,7 @@ class RoomAccessTestCase(unittest.HomeserverTestCase):
         self.render(request)
         self.assertEqual(channel.code, 200, channel.result)
 
+        # List init_state_room_id in the public room list
         request, channel = self.make_request(
             "PUT",
             "/_matrix/client/r0/directory/list/room/%s" % (init_state_room_id,),
@@ -262,19 +262,25 @@ class RoomAccessTestCase(unittest.HomeserverTestCase):
             init_state_room_id, AccessRules.DIRECT, expected_code=403
         )
 
-        # Creating a new room with the public_chat preset and an access rule that isn't
-        # restricted or unrestricted should fail.
+        # Creating a new room with the public_chat preset and an access rule of direct
+        # should fail.
         self.create_room(
             preset=RoomCreationPreset.PUBLIC_CHAT,
             rule=AccessRules.DIRECT,
             expected_code=400,
         )
 
+        # Changing join rule to public in an direct room should fail.
+        self.change_join_rule_in_room(
+            self.direct_rooms[0], JoinRules.PUBLIC, expected_code=403
+        )
+
     def test_restricted(self):
         """Tests that in restricted mode we're unable to invite users from blacklisted
         servers but can invite other users.
 
-        Tests that the room can be published to, and removed from, the public room list.
+        Also tests that the room can be published to, and removed from, the public room
+        list.
         """
         # We can't invite a user from a forbidden HS.
         self.helper.invite(
@@ -721,10 +727,12 @@ class RoomAccessTestCase(unittest.HomeserverTestCase):
         )
 
     def test_check_event_allowed(self):
-        """Tests that AccessRules.check_event_allowed behaves accordingly"""
-        access_rules = RoomAccessRules(
-            self.access_rules_config, ModuleApi(self.hs, self.hs.get_auth()),
-        )
+        """Tests that RoomAccessRules.check_event_allowed behaves accordingly.
+
+        It tests that:
+            * forbidden users cannot join restricted rooms.
+            * forbidden users can join unrestricted rooms if they have an invite.
+        """
         event_creator = self.hs.get_event_creation_handler()
 
         # Test that forbidden users cannot join restricted rooms
@@ -733,7 +741,7 @@ class RoomAccessTestCase(unittest.HomeserverTestCase):
         forbidden_requester = create_requester("@user:forbidden_domain")
 
         # Create a join event for a forbidden user
-        forbidden_join_event, _ = self.get_success(
+        forbidden_join_event, forbidden_join_event_context = self.get_success(
             event_creator.create_event(
                 forbidden_requester,
                 {
@@ -746,8 +754,8 @@ class RoomAccessTestCase(unittest.HomeserverTestCase):
             )
         )
 
-        # Create a join event for a not forbidden user
-        allowed_join_event, _ = self.get_success(
+        # Create a join event for an allowed user
+        allowed_join_event, allowed_join_event_context = self.get_success(
             event_creator.create_event(
                 allowed_requester,
                 {
@@ -760,66 +768,57 @@ class RoomAccessTestCase(unittest.HomeserverTestCase):
             )
         )
 
-        # Create a state event defining a restricted room
-        restricted_access_rules_event = self.helper.get_state(
-            self.restricted_room, "im.vector.room.access_rules", self.tok
-        )
-
-        # Create a dict of fake state events for the room
-        room_state_events = {
-            (
-                EventTypes.Member,
-                requester.user.to_string(),
-            ): restricted_access_rules_event
-        }
-
         # Assert a join event from a forbidden user to a restricted room is rejected
         can_join = self.get_success(
-            access_rules.check_event_allowed(forbidden_join_event, room_state_events)
+            self.third_party_event_rules.check_event_allowed(
+                forbidden_join_event, forbidden_join_event_context
+            )
         )
         self.assertFalse(can_join)
 
         # But a join event from an non-forbidden user to a restricted room is allowed
         can_join = self.get_success(
-            access_rules.check_event_allowed(allowed_join_event, room_state_events)
+            self.third_party_event_rules.check_event_allowed(
+                allowed_join_event, allowed_join_event_context
+            )
         )
         self.assertTrue(can_join)
 
         # Test that forbidden users can join unrestricted rooms if they have an invite
 
-        # Set up a fake state map for an unrestricted room
-        unrestricted_access_rules_event = self.helper.get_state(
-            self.unrestricted_room, "im.vector.room.access_rules", self.tok
-        )
-        room_state_events = {
-            (
-                EventTypes.Member,
-                requester.user.to_string(),
-            ): unrestricted_access_rules_event
-        }
-
-        # A forbidden user should not be able to join an unrestricted room
-        can_join = self.get_success(
-            access_rules.check_event_allowed(forbidden_join_event, room_state_events)
-        )
-        self.assertFalse(can_join)
-
-        # However, if we add in an invite for this user...
-        forbidden_invite_event, _ = self.get_success(
+        # Recreate the forbidden join event for the unrestricted room instead
+        forbidden_join_event, forbidden_join_event_context = self.get_success(
             event_creator.create_event(
-                requester,
+                forbidden_requester,
                 {
                     "type": EventTypes.Member,
                     "room_id": self.unrestricted_room,
-                    "sender": requester.user.to_string(),
-                    "content": {"membership": Membership.INVITE},
+                    "sender": forbidden_requester.user.to_string(),
+                    "content": {"membership": Membership.JOIN},
                     "state_key": forbidden_requester.user.to_string(),
                 },
             )
         )
 
-        # And recreate the forbidden join event for this room instead...
-        forbidden_join_event, _ = self.get_success(
+        # A forbidden user without an invite should not be able to join an unrestricted room
+        can_join = self.get_success(
+            self.third_party_event_rules.check_event_allowed(
+                forbidden_join_event, forbidden_join_event_context
+            )
+        )
+        self.assertFalse(can_join)
+
+        # However, if we then invite this user...
+        self.helper.invite(
+            room=self.unrestricted_room,
+            src=requester.user.to_string(),
+            targ=forbidden_requester.user.to_string(),
+            tok=self.tok,
+        )
+
+        # And create another join event, making sure that its context states it's coming
+        # in after the above invite was made...
+        forbidden_join_event, forbidden_join_event_context = self.get_success(
             event_creator.create_event(
                 forbidden_requester,
                 {
@@ -834,11 +833,11 @@ class RoomAccessTestCase(unittest.HomeserverTestCase):
 
         # Then the forbidden user should be able to join!
         can_join = self.get_success(
-            access_rules.check_event_allowed(forbidden_join_event, room_state_events)
+            self.third_party_event_rules.check_event_allowed(
+                forbidden_join_event, forbidden_join_event_context
+            )
         )
-        self.assertFalse(can_join)
-
-        # Create an invite for the forbidden user
+        self.assertTrue(can_join)
 
     def create_room(
         self,
