@@ -21,7 +21,6 @@ from prometheus_client import Gauge
 
 from twisted.internet import defer
 
-from synapse.handlers.account_validity import is_account_expired
 from synapse.metrics.background_process_metrics import run_as_background_process
 from synapse.push import PusherConfigException
 from synapse.push.emailpusher import EmailPusher
@@ -201,8 +200,8 @@ class PusherPool:
                 if u in self.pushers:
                     # Don't push if the user account has expired
                     if self._account_validity.enabled:
-                        expired = yield is_account_expired(
-                            u, self.store, self.clock.time_msec()
+                        expired = yield self.store.is_account_expired(
+                            u, self.clock.time_msec()
                         )
                         if expired:
                             continue
@@ -230,8 +229,8 @@ class PusherPool:
                 if u in self.pushers:
                     # Don't push if the user account has expired
                     if self._account_validity.enabled:
-                        expired = yield is_account_expired(
-                            u, self.store, self.clock.time_msec()
+                        expired = yield self.store.is_account_expired(
+                            u, self.clock.time_msec()
                         )
                         if expired:
                             continue
