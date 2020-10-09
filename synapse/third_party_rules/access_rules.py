@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import email.utils
+import logging
 from typing import Dict, List, Optional, Tuple
 
 from twisted.internet import defer
@@ -22,7 +23,9 @@ from synapse.api.errors import SynapseError
 from synapse.config._base import ConfigError
 from synapse.events import EventBase
 from synapse.module_api import ModuleApi
-from synapse.types import Requester, StateMap, get_domain_from_id
+from synapse.types import Requester, StateMap, UserID, get_domain_from_id
+
+logger = logging.getLogger(__name__)
 
 ACCESS_RULES_TYPE = "im.vector.room.access_rules"
 
@@ -323,7 +326,7 @@ class RoomAccessRules(object):
             )
 
         if event.type == EventTypes.Member or event.type == EventTypes.ThirdPartyInvite:
-            return self._on_membership_or_invite(event, rule, state_events)
+            return await self._on_membership_or_invite(event, rule, state_events)
 
         if event.type == EventTypes.JoinRules:
             return self._on_join_rule_change(event, rule)
@@ -420,7 +423,7 @@ class RoomAccessRules(object):
             prev_rule == AccessRules.RESTRICTED and new_rule == AccessRules.UNRESTRICTED
         )
 
-    def _on_membership_or_invite(
+    async def _on_membership_or_invite(
         self, event: EventBase, rule: str, state_events: StateMap[EventBase],
     ) -> bool:
         """Applies the correct rule for incoming m.room.member and
@@ -446,7 +449,129 @@ class RoomAccessRules(object):
             # might want to change that in the future.
             ret = self._on_membership_or_invite_restricted(event)
 
+        if event.type == "m.room.member":
+            # If this is an admin leaving, and they are the last admin in the room,
+            # raise the power levels of the room so that the room is 'frozen'.
+            #
+            # We have to freeze the room by puppeting an admin user, which we can
+            # only do for local users
+            if (
+                self._is_local_user(event.sender)
+                and event.membership == Membership.LEAVE
+            ):
+                await self._freeze_room_if_last_admin_is_leaving(event, state_events)
+
         return ret
+
+    async def _freeze_room_if_last_admin_is_leaving(
+        self, event: EventBase, state_events: StateMap[EventBase]
+    ):
+        logger.info("Freezing room '%s'", event.room_id)
+
+        power_level_state_event = state_events.get(
+            (EventTypes.PowerLevels, "")
+        )  # type: EventBase
+        if not power_level_state_event:
+            return
+        power_level_content = power_level_state_event.content
+        if not isinstance(power_level_content, dict):
+            # The power level content has been set to something other than a dict...
+            # bail out.
+            return
+
+        user_id = event.get("sender")
+        if not user_id:
+            return
+
+        # Get every admin user defined in the room's state
+        admin_users = [
+            user
+            for user, power_level in power_level_content["users"].items()
+            if power_level >= 100
+        ]
+
+        if user_id not in admin_users:
+            # This user is not an admin, ignore them
+            return
+
+        # Filter these users to only those who are actually joined or invited to the room
+        joined_members = [
+            user_id
+            for (event_type, user_id), event in state_events.items()
+            if event_type == EventTypes.Member
+            and event.membership in [Membership.JOIN, Membership.INVITE]
+        ]
+        admin_users = [user for user in admin_users if user in joined_members]
+
+        if len(admin_users) > 1:
+            # There's another admin user in, or invited to, the room
+            return
+
+        # Modify the existing power levels to raise all required types to 100
+        #
+        # This changes a power level state event's content from something like:
+        # {
+        #     "redact": 50,
+        #     "state_default": 50,
+        #     "ban": 50,
+        #     "notifications": {
+        #         "room": 50
+        #     },
+        #     "events": {
+        #         "m.room.avatar": 50,
+        #         "m.room.encryption": 50,
+        #         "m.room.canonical_alias": 50,
+        #         "m.room.name": 50,
+        #         "im.vector.modular.widgets": 50,
+        #         "m.room.topic": 50,
+        #         "m.room.tombstone": 50,
+        #         "m.room.history_visibility": 100,
+        #         "m.room.power_levels": 100
+        #     },
+        #     "users_default": 0,
+        #     "events_default": 0,
+        #     "users": {
+        #         "@admin:example.com": 100,
+        #     },
+        #     "kick": 50,
+        #     "invite": 0
+        # }
+        #
+        # to
+        #
+        # {
+        #     "redact": 100,
+        #     "state_default": 100,
+        #     "ban": 100,
+        #     "notifications": {
+        #         "room": 50
+        #     },
+        #     "events": {}
+        #     "users_default": 0,
+        #     "events_default": 100,
+        #     "users": {
+        #         "@admin:example.com": 100,
+        #     },
+        #     "kick": 100,
+        #     "invite": 100
+        # }
+        for key, value in power_level_content.items():
+            # Do not change "users_default", as that key specifies the default power
+            # level of new users
+            if isinstance(value, int) and key != "users_default":
+                power_level_content[key] = 100
+        power_level_content["events"] = {}
+
+        # Freeze the room by raising the required power level to send events to 100
+        await self.module_api.create_and_send_event_into_room(
+            {
+                "room_id": event.room_id,
+                "sender": user_id,
+                "type": EventTypes.PowerLevels,
+                "content": power_level_content,
+                "state_key": "",
+            }
+        )
 
     def _on_membership_or_invite_restricted(self, event: EventBase) -> bool:
         """Implements the checks and behaviour specified for the "restricted" rule.
@@ -752,6 +877,25 @@ class RoomAccessRules(object):
         )
 
         return token == threepid_invite_token
+
+    def _is_local_user(self, user_id: str) -> bool:
+        """Checks whether a given user ID belongs to this homeserver, or a remote
+
+        Args:
+            user_id: A user ID to check.
+
+        Returns:
+            True if the user belongs to this homeserver, False otherwise.
+        """
+        user = UserID.from_string(user_id)
+
+        # Extract the localpart and ask the module API for a user ID from the localpart
+        # The module API will append the local homeserver's server_name
+        local_user_id = self.module_api.get_qualified_user_id(user.localpart)
+
+        # If the user ID we get based on the localpart is the same as the original user ID,
+        # then they were a local user
+        return user_id == local_user_id
 
     def _user_is_invited_to_room(
         self, user_id: str, state_events: StateMap[EventBase]
