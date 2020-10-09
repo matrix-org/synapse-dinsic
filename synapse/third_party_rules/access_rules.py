@@ -473,7 +473,7 @@ class RoomAccessRules(object):
         )  # type: EventBase
         if not power_level_state_event:
             return
-        power_level_content = power_level_state_event.content
+        power_level_content = power_level_state_event.content.copy()
         if not isinstance(power_level_content, dict):
             # The power level content has been set to something other than a dict...
             # bail out.
