@@ -466,8 +466,6 @@ class RoomAccessRules(object):
     async def _freeze_room_if_last_admin_is_leaving(
         self, event: EventBase, state_events: StateMap[EventBase]
     ):
-        logger.info("Freezing room '%s'", event.room_id)
-
         power_level_state_event = state_events.get(
             (EventTypes.PowerLevels, "")
         )  # type: EventBase
@@ -563,6 +561,8 @@ class RoomAccessRules(object):
         power_level_content["events"] = {}
 
         # Freeze the room by raising the required power level to send events to 100
+        logger.info("Freezing room '%s'", event.room_id)
+
         await self.module_api.create_and_send_event_into_room(
             {
                 "room_id": event.room_id,

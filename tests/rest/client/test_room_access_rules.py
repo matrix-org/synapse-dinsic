@@ -840,6 +840,84 @@ class RoomAccessTestCase(unittest.HomeserverTestCase):
         )
         self.assertTrue(can_join)
 
+    def test_freezing_a_room(self):
+        """Tests that the power levels in a room change to prevent new events from
+        non-admin users when the last admin of a room leaves.
+        """
+        # Invite a user to the room, they join with PL 0
+        self.helper.invite(
+            room=self.restricted_room,
+            src=self.user_id,
+            targ=self.invitee_id,
+            tok=self.tok,
+        )
+
+        # Invitee joins the room
+        self.helper.join(
+            room=self.restricted_room, user=self.invitee_id, tok=self.invitee_tok,
+        )
+
+        # Retrieve the room's current power levels event content
+        power_levels = self.helper.get_state(
+            room_id=self.restricted_room,
+            event_type="m.room.power_levels",
+            tok=self.tok,
+        )
+
+        # Ensure that the invitee leaving the room does not change the power levels
+        self.helper.leave(
+            room=self.restricted_room, user=self.invitee_id, tok=self.invitee_tok,
+        )
+
+        # Retrieve the new power levels of the room
+        new_power_levels = self.helper.get_state(
+            room_id=self.restricted_room,
+            event_type="m.room.power_levels",
+            tok=self.tok,
+        )
+
+        # Ensure they have not changed
+        self.assertDictEqual(power_levels, new_power_levels)
+
+        # Invite the user back again
+        self.helper.invite(
+            room=self.restricted_room,
+            src=self.user_id,
+            targ=self.invitee_id,
+            tok=self.tok,
+        )
+
+        # Invitee joins the room
+        self.helper.join(
+            room=self.restricted_room, user=self.invitee_id, tok=self.invitee_tok,
+        )
+
+        # Now the admin leaves the room
+        self.helper.leave(
+            room=self.restricted_room, user=self.user_id, tok=self.tok,
+        )
+
+        # Check the power levels again
+        new_power_levels = self.helper.get_state(
+            room_id=self.restricted_room,
+            event_type="m.room.power_levels",
+            tok=self.invitee_tok,
+        )
+
+        # Ensure that the new power levels prevent anyone but admins from sending
+        # certain events
+        self.assertEquals(new_power_levels["state_default"], 100)
+        self.assertEquals(new_power_levels["events_default"], 100)
+        self.assertEquals(new_power_levels["kick"], 100)
+        self.assertEquals(new_power_levels["invite"], 100)
+        self.assertEquals(new_power_levels["ban"], 100)
+        self.assertEquals(new_power_levels["redact"], 100)
+        self.assertDictEqual(new_power_levels["events"], {})
+        self.assertDictEqual(new_power_levels["users"], {self.user_id: 100})
+
+        # Ensure new users entering the room aren't going to immediately become admins
+        self.assertEquals(new_power_levels["users_default"], 0)
+
     def create_room(
         self,
         direct=False,
