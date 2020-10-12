@@ -488,11 +488,11 @@ class RoomAccessRules(object):
             return
 
         # Get every admin user defined in the room's state
-        admin_users = [
+        admin_users = {
             user
             for user, power_level in power_level_content["users"].items()
             if power_level >= 100
-        ]
+        }
 
         if user_id not in admin_users:
             # This user is not an admin, ignore them
@@ -505,7 +505,7 @@ class RoomAccessRules(object):
             if event_type == EventTypes.Member
             and event.membership in [Membership.JOIN, Membership.INVITE]
         ]
-        admin_users = [user for user in admin_users if user in joined_members]
+        admin_users = {user for user in admin_users if user in joined_members}
 
         if len(admin_users) > 1:
             # There's another admin user in, or invited to, the room
