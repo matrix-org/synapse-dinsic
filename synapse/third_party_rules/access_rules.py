@@ -472,9 +472,15 @@ class RoomAccessRules(object):
         if not power_level_state_event:
             return
         power_level_content = power_level_state_event.content.copy()
-        if not isinstance(power_level_content, dict):
-            # The power level content has been set to something other than a dict...
-            # bail out.
+
+        # Do some validation checks on the power level state event
+        if (
+            not isinstance(power_level_content, dict)
+            or "users" not in power_level_content
+            or not isinstance(power_level_content["users"], dict)
+        ):
+            # We can't use this power level event to determine whether the room should be
+            # frozen. Bail out.
             return
 
         user_id = event.get("sender")
