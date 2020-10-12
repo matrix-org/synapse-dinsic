@@ -511,6 +511,8 @@ class RoomAccessRules(object):
             # There's another admin user in, or invited to, the room
             return
 
+        logger.info("Freezing room '%s'", event.room_id)
+
         # Modify the existing power levels to raise all required types to 100
         #
         # This changes a power level state event's content from something like:
@@ -567,8 +569,6 @@ class RoomAccessRules(object):
         power_level_content["events"] = {}
 
         # Freeze the room by raising the required power level to send events to 100
-        logger.info("Freezing room '%s'", event.room_id)
-
         await self.module_api.create_and_send_event_into_room(
             {
                 "room_id": event.room_id,
