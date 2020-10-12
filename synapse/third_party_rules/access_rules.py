@@ -471,7 +471,7 @@ class RoomAccessRules(object):
         )  # type: EventBase
         if not power_level_state_event:
             return
-        power_level_content = power_level_state_event.content.copy()
+        power_level_content = power_level_state_event.content
 
         # Do some validation checks on the power level state event
         if (
@@ -559,19 +559,29 @@ class RoomAccessRules(object):
         #     "kick": 100,
         #     "invite": 100
         # }
+        new_content = {}
         for key, value in power_level_content.items():
             # Do not change "users_default", as that key specifies the default power
             # level of new users
             if isinstance(value, int) and key != "users_default":
-                power_level_content[key] = 100
-        power_level_content["events"] = {}
+                value = 100
+            new_content[key] = value
+
+        # Clear out any special-case event power levels
+        new_content["events"] = {}
+
+        # Ensure state_default and events_default keys exist and are 100
+        # Else a lower PL user could potentially send state events that
+        # aren't explicitly mentioned elsewhere in the power level dict
+        new_content["state_default"] = 100
+        new_content["events_default"] = 100
 
         await self.module_api.create_and_send_event_into_room(
             {
                 "room_id": event.room_id,
                 "sender": user_id,
                 "type": EventTypes.PowerLevels,
-                "content": power_level_content,
+                "content": new_content,
                 "state_key": "",
             }
         )
