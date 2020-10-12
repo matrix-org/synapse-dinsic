@@ -498,16 +498,13 @@ class RoomAccessRules(object):
             # This user is not an admin, ignore them
             return
 
-        # Filter these users to only those who are actually joined or invited to the room
-        joined_members = [
-            user_id
-            for (event_type, user_id), event in state_events.items()
-            if event_type == EventTypes.Member
+        if any(
+            event_type == EventTypes.Member
             and event.membership in [Membership.JOIN, Membership.INVITE]
-        ]
-        admin_users = {user for user in admin_users if user in joined_members}
-
-        if len(admin_users) > 1:
+            and state_key in admin_users
+            and state_key != user_id
+            for (event_type, state_key), event in state_events.items()
+        ):
             # There's another admin user in, or invited to, the room
             return
 
