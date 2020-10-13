@@ -567,14 +567,25 @@ class RoomAccessRules(object):
                 value = 100
             new_content[key] = value
 
-        # Clear out any special-case event power levels
-        new_content["events"] = {}
-
-        # Ensure state_default and events_default keys exist and are 100
-        # Else a lower PL user could potentially send state events that
-        # aren't explicitly mentioned elsewhere in the power level dict
-        new_content["state_default"] = 100
-        new_content["events_default"] = 100
+        # Set some values in case they are missing from the original
+        # power levels event content
+        new_content.update(
+            {
+                # Clear out any special-cased event keys
+                "events": {},
+                # Ensure state_default and events_default keys exist and are 100.
+                # Otherwise a lower PL user could potentially send state events that
+                # aren't explicitly mentioned elsewhere in the power level dict
+                "state_default": 100,
+                "events_default": 100,
+                # Membership events default to 50 if they aren't present. Set them
+                # to 100 here, as they would be set to 100 if they were present anyways
+                "ban": 100,
+                "kick": 100,
+                "invite": 100,
+                "redact": 100,
+            }
+        )
 
         await self.module_api.create_and_send_event_into_room(
             {

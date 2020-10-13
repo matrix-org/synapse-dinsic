@@ -927,7 +927,7 @@ class RoomAccessTestCase(unittest.HomeserverTestCase):
         freeze_room_with_id_and_power_levels(room1)
 
         # Test that freezing a room with a power level state event that is missing
-        # `state_default` and `event_default` keys works
+        # `state_default` and `event_default` keys behaves as expected
         room2 = self.create_room()
         freeze_room_with_id_and_power_levels(
             room2,
@@ -946,6 +946,26 @@ class RoomAccessTestCase(unittest.HomeserverTestCase):
                 "users": {self.user_id: 100},
                 "users_default": 0,
                 # Explicitly remove `state_default` and `event_default` keys
+            },
+        )
+
+        # Test that freezing a room with a power level state event that is *additionally*
+        # missing `ban`, `invite`, `kick` and `redact` keys behaves as expected
+        room3 = self.create_room()
+        freeze_room_with_id_and_power_levels(
+            room3,
+            {
+                "events": {
+                    "m.room.avatar": 50,
+                    "m.room.canonical_alias": 50,
+                    "m.room.history_visibility": 100,
+                    "m.room.name": 50,
+                    "m.room.power_levels": 100,
+                },
+                "users": {self.user_id: 100},
+                "users_default": 0,
+                # Explicitly remove `state_default` and `event_default` keys
+                # Explicitly remove `ban`, `invite`, `kick and `redact` keys
             },
         )
 
