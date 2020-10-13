@@ -965,7 +965,7 @@ class RoomAccessTestCase(unittest.HomeserverTestCase):
                 "users": {self.user_id: 100},
                 "users_default": 0,
                 # Explicitly remove `state_default` and `event_default` keys
-                # Explicitly remove `ban`, `invite`, `kick and `redact` keys
+                # Explicitly remove `ban`, `invite`, `kick` and `redact` keys
             },
         )
 
