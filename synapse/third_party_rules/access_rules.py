@@ -196,9 +196,7 @@ class RoomAccessRules(object):
         if not allowed:
             raise SynapseError(400, "Invalid power levels content override")
 
-        use_default_power_levels = True
-        if config.get("power_level_content_override"):
-            use_default_power_levels = False
+        custom_user_power_levels = config.get("power_level_content_override")
 
         # Second loop for events we need to know the current rule to process.
         for event in config.get("initial_state", []):
@@ -209,14 +207,20 @@ class RoomAccessRules(object):
                 if not allowed:
                     raise SynapseError(400, "Invalid power levels content")
 
-                use_default_power_levels = False
+                custom_user_power_levels = event["content"]
 
-        # If power levels were not overridden by the user, override with DINUM's preferred
-        # defaults instead
-        if use_default_power_levels:
-            config["power_level_content_override"] = self._get_default_power_levels(
-                requester.user.to_string()
-            )
+        default_power_levels = self._get_default_power_levels(
+            requester.user.to_string()
+        )
+        if custom_user_power_levels:
+            # If the user is using their own power levels, but failed to provide an expected
+            # key in the power levels content dictionary, fill it in from the defaults instead
+            for key, value in default_power_levels.items():
+                custom_user_power_levels.setdefault(key, value)
+        else:
+            # If power levels were not overridden by the user, completely override with the
+            # defaults instead
+            config["power_level_content_override"] = default_power_levels
 
         return True
 
@@ -733,6 +737,10 @@ class RoomAccessRules(object):
         # have a special circumstance, but still want to encourage a certain pattern during
         # room creation.
         if on_room_creation:
+            # We specifically don't fail if "invite" or "state_default" are None, as those
+            # values should be replaced with our "default" power level values anyways,
+            # which are compliant
+
             # If invite requirements are <PL50
             if content.get("invite", 50) < 50:
                 return False
