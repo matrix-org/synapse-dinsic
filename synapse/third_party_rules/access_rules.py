@@ -752,15 +752,15 @@ class RoomAccessRules(object):
             # values should be replaced with our "default" power level values anyways,
             # which are compliant
 
-            # If invite requirements are <PL50
-            if content.get("invite", default_power_levels["invite"]) < 50:
+            invite = default_power_levels["invite"]
+            state_default = default_power_levels["state_default"]
+
+            # If invite requirements are less than our required defaults
+            if content.get("invite", invite) < invite:
                 return False
 
-            # If "other" state requirements are <PL100
-            if (
-                content.get("state_default", default_power_levels["state_default"])
-                < 100
-            ):
+            # If "other" state requirements are less than our required defaults
+            if content.get("state_default", state_default) < state_default:
                 return False
 
         # Check if we need to apply the restrictions with the current rule.
