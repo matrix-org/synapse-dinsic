@@ -189,9 +189,15 @@ class RoomAccessRules(object):
         ) and access_rule == AccessRules.DIRECT:
             raise SynapseError(400, "Invalid access rule")
 
+        default_power_levels = self._get_default_power_levels(
+            requester.user.to_string()
+        )
+
         # Check if the creator can override values for the power levels.
         allowed = self._is_power_level_content_allowed(
-            config.get("power_level_content_override", {}), access_rule
+            config.get("power_level_content_override", {}),
+            access_rule,
+            default_power_levels,
         )
         if not allowed:
             raise SynapseError(400, "Invalid power levels content override")
@@ -202,16 +208,12 @@ class RoomAccessRules(object):
         for event in config.get("initial_state", []):
             if event["type"] == EventTypes.PowerLevels:
                 allowed = self._is_power_level_content_allowed(
-                    event["content"], access_rule
+                    event["content"], access_rule, default_power_levels
                 )
                 if not allowed:
                     raise SynapseError(400, "Invalid power levels content")
 
                 custom_user_power_levels = event["content"]
-
-        default_power_levels = self._get_default_power_levels(
-            requester.user.to_string()
-        )
         if custom_user_power_levels:
             # If the user is using their own power levels, but failed to provide an expected
             # key in the power levels content dictionary, fill it in from the defaults instead
@@ -324,9 +326,12 @@ class RoomAccessRules(object):
         # We need to know the rule to apply when processing the event types below.
         rule = self._get_rule_from_state(state_events)
 
+        # We also need to know the default power levels as they apply to the sender
+        default_power_levels = self._get_default_power_levels(event.sender)
+
         if event.type == EventTypes.PowerLevels:
             return self._is_power_level_content_allowed(
-                event.content, rule, on_room_creation=False
+                event.content, rule, default_power_levels, on_room_creation=False
             )
 
         if event.type == EventTypes.Member or event.type == EventTypes.ThirdPartyInvite:
@@ -714,7 +719,11 @@ class RoomAccessRules(object):
         return True
 
     def _is_power_level_content_allowed(
-        self, content: Dict, access_rule: str, on_room_creation: bool = True
+        self,
+        content: Dict,
+        access_rule: str,
+        default_power_levels: Dict,
+        on_room_creation: bool = True,
     ) -> bool:
         """Check if a given power levels event is permitted under the given access rule.
 
@@ -725,6 +734,8 @@ class RoomAccessRules(object):
         Args:
             content: The content of the m.room.power_levels event to check.
             access_rule: The access rule in place in this room.
+            default_power_levels: The default power levels when a room is created with
+                the specified access rule.
             on_room_creation: True if this call is happening during a room's
                 creation, False otherwise.
 
@@ -742,11 +753,14 @@ class RoomAccessRules(object):
             # which are compliant
 
             # If invite requirements are <PL50
-            if content.get("invite", 50) < 50:
+            if content.get("invite", default_power_levels["invite"]) < 50:
                 return False
 
             # If "other" state requirements are <PL100
-            if content.get("state_default", 100) < 100:
+            if (
+                content.get("state_default", default_power_levels["state_default"])
+                < 100
+            ):
                 return False
 
         # Check if we need to apply the restrictions with the current rule.
