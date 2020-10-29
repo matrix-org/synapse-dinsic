@@ -326,12 +326,9 @@ class RoomAccessRules(object):
         # We need to know the rule to apply when processing the event types below.
         rule = self._get_rule_from_state(state_events)
 
-        # We also need to know the default power levels as they apply to the sender
-        default_power_levels = self._get_default_power_levels(event.sender)
-
         if event.type == EventTypes.PowerLevels:
             return self._is_power_level_content_allowed(
-                event.content, rule, default_power_levels, on_room_creation=False
+                event.content, rule, on_room_creation=False
             )
 
         if event.type == EventTypes.Member or event.type == EventTypes.ThirdPartyInvite:
@@ -722,7 +719,7 @@ class RoomAccessRules(object):
         self,
         content: Dict,
         access_rule: str,
-        default_power_levels: Dict,
+        default_power_levels: Optional[Dict] = None,
         on_room_creation: bool = True,
     ) -> bool:
         """Check if a given power levels event is permitted under the given access rule.
@@ -735,7 +732,7 @@ class RoomAccessRules(object):
             content: The content of the m.room.power_levels event to check.
             access_rule: The access rule in place in this room.
             default_power_levels: The default power levels when a room is created with
-                the specified access rule.
+                the specified access rule. Required if on_room_creation is True.
             on_room_creation: True if this call is happening during a room's
                 creation, False otherwise.
 
