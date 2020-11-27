@@ -110,17 +110,17 @@ class PushersSetRestServlet(RestServlet):
 
         # rewrite push url from m.org sygnal to Tchap sygnal
         good_sygnal_url = None
-        if (
-            content["app_id"].startswith("fr.gouv.btchap")
-            or content["app_id"].startswith("fr.gouv.rie.tchap")
-        ):
+        app_id = content["app_id"]
+        if "fr.gouv.btchap" in app_id or "fr.gouv.rie.tchap" in app_id:
             good_sygnal_url = "https://sygnal.preprod.tchap.gouv.fr"
-        elif content["app_id"].startswith("fr.gouv.tchap"):
+        elif app_id.startswith("fr.gouv.tchap"):
             good_sygnal_url = "https://sygnal.tchap.gouv.fr"
 
         if good_sygnal_url:
             parsed_data = json_decoder.decode(content["data"])
-            parsed_data["url"] = parsed_data["url"].replace("https://matrix.org", good_sygnal_url)
+            parsed_data["url"] = parsed_data["url"].replace(
+                "https://matrix.org", good_sygnal_url
+            )
             content["data"] = json_encoder.encode(parsed_data)
 
         append = False
