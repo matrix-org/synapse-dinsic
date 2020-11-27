@@ -25,6 +25,7 @@ from synapse.http.servlet import (
 )
 from synapse.push import PusherConfigException
 from synapse.rest.client.v2_alpha._base import client_patterns
+from synapse.util import json_decoder, json_encoder
 
 logger = logging.getLogger(__name__)
 
@@ -106,6 +107,18 @@ class PushersSetRestServlet(RestServlet):
 
         logger.debug("set pushkey %s to kind %s", content["pushkey"], content["kind"])
         logger.debug("Got pushers request with body: %r", content)
+
+        # rewrite push url from m.org sygnal to Tchap sygnal
+        good_sygnal_url = None
+        if content["app_id"].start_with("fr.gouv.btchap"):
+            good_sygnal_url = "https://sygnal.preprod.tchap.gouv.fr"
+        if content["app_id"].start_with("fr.gouv.tchap"):
+            good_sygnal_url = "https://sygnal.tchap.gouv.fr"
+
+        if good_sygnal_url:
+            parsed_data = json_decoder.decode(content["data"])
+            parsed_data["url"] = parsed_data["url"].replace("https://matrix.org", good_sygnal_url)
+            content["data"] = json_encoder.encode(parsed_data)
 
         append = False
         if "append" in content:
