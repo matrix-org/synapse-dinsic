@@ -18,7 +18,7 @@ import email.utils
 import logging
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 from synapse.api.errors import StoreError
 from synapse.logging.context import make_deferred_yieldable
@@ -223,27 +223,32 @@ class AccountValidityHandler:
                 attempts += 1
         raise StoreError(500, "Couldn't generate a unique string as refresh string.")
 
-    async def renew_account(self, renewal_token: str) -> bool:
+    async def renew_account(self, renewal_token: str) -> Tuple[bool, int]:
         """Renews the account attached to a given renewal token by pushing back the
         expiration date by the current validity period in the server's configuration.
 
         Args:
             renewal_token: Token sent with the renewal request.
         Returns:
-            Whether the provided token is valid.
+            A tuple containing:
+              * A bool representing whether the token is valid.
+              * An int representing the new expiry timestamp as milliseconds since epoch,
+                or 0 if the token was invalid.
         """
         try:
             user_id = await self.store.get_user_from_renewal_token(renewal_token)
         except StoreError:
-            return False
+            return False, 0
 
         logger.debug("Renewing an account for user %s", user_id)
 
         # Renew the account. Keep the renewal token in tact for idempotency in case the
         # user attempts to renew their account with the same token.
-        await self.renew_account_for_user(user_id, renewal_token=renewal_token)
+        new_expiration_ts = await self.renew_account_for_user(
+            user_id, renewal_token=renewal_token
+        )
 
-        return True
+        return True, new_expiration_ts
 
     async def renew_account_for_user(
         self,

@@ -13,10 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import os
 from distutils.util import strtobool
-
-import pkg_resources
 
 from synapse.api.constants import RoomCreationPreset
 from synapse.config._base import Config, ConfigError
@@ -54,32 +51,19 @@ class AccountValidityConfig(Config):
             if "public_baseurl" not in synapse_config:
                 raise ConfigError("Can't send renewal emails without 'public_baseurl'")
 
-        template_dir = config.get("template_dir")
-
-        if not template_dir:
-            template_dir = pkg_resources.resource_filename("synapse", "res/templates")
-
-        if "account_renewed_html_path" in config:
-            file_path = os.path.join(template_dir, config["account_renewed_html_path"])
-
-            self.account_renewed_html_content = self.read_file(
-                file_path, "account_validity.account_renewed_html_path"
-            )
-        else:
-            self.account_renewed_html_content = (
-                "<html><body>Your account has been successfully renewed.</body><html>"
-            )
-
-        if "invalid_token_html_path" in config:
-            file_path = os.path.join(template_dir, config["invalid_token_html_path"])
-
-            self.invalid_token_html_content = self.read_file(
-                file_path, "account_validity.invalid_token_html_path"
-            )
-        else:
-            self.invalid_token_html_content = (
-                "<html><body>Invalid renewal token.</body><html>"
-            )
+        # Load templates
+        account_renewed_template_filename = config.get(
+            "account_renewed_html_path", "account_renewed.html"
+        )
+        invalid_token_template_filename = config.get(
+            "invalid_token_html_path", "invalid_token.html"
+        )
+        (
+            self.account_renewed_template,
+            self.invalid_token_template,
+        ) = self.read_templates(
+            [account_renewed_template_filename, invalid_token_template_filename]
+        )
 
 
 class RegistrationConfig(Config):

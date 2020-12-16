@@ -706,7 +706,10 @@ class AccountValidityRenewalByEmailTestCase(unittest.HomeserverTestCase):
         self.assertEqual(content_type, b"text/html; charset=utf-8", channel.result)
 
         # Check that the HTML we're getting is the one we expect on a successful renewal.
-        expected_html = self.hs.config.account_validity.account_renewed_html_content
+        expiration_ts = self.get_success(self.store.get_expiration_ts_for_user(user_id))
+        expected_html = self.hs.config.account_validity.account_renewed_template.render(
+            expiration_ts=expiration_ts
+        )
         self.assertEqual(
             channel.result["body"], expected_html.encode("utf8"), channel.result
         )
@@ -736,7 +739,7 @@ class AccountValidityRenewalByEmailTestCase(unittest.HomeserverTestCase):
 
         # Check that the HTML we're getting is the one we expect when using an
         # invalid/unknown token.
-        expected_html = self.hs.config.account_validity.invalid_token_html_content
+        expected_html = self.hs.config.account_validity.invalid_token_template.render()
         self.assertEqual(
             channel.result["body"], expected_html.encode("utf8"), channel.result
         )
