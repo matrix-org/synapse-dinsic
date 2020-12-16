@@ -18,7 +18,7 @@ import email.utils
 import logging
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
-from typing import List
+from typing import List, Optional
 
 from synapse.api.errors import StoreError
 from synapse.logging.context import make_deferred_yieldable
@@ -238,22 +238,30 @@ class AccountValidityHandler:
             return False
 
         logger.debug("Renewing an account for user %s", user_id)
-        await self.renew_account_for_user(user_id)
+
+        # Renew the account. Keep the renewal token in tact for idempotency in case the
+        # user attempts to renew their account with the same token.
+        await self.renew_account_for_user(user_id, renewal_token=renewal_token)
 
         return True
 
     async def renew_account_for_user(
-        self, user_id: str, expiration_ts: int = None, email_sent: bool = False
+        self,
+        user_id: str,
+        expiration_ts: Optional[int] = None,
+        email_sent: Optional[bool] = False,
+        renewal_token: Optional[str] = None,
     ) -> int:
         """Renews the account attached to a given user by pushing back the
         expiration date by the current validity period in the server's
         configuration.
 
         Args:
-            renewal_token: Token sent with the renewal request.
+            user_id: The ID of the user to renew.
             expiration_ts: New expiration date. Defaults to now + validity period.
-            email_sen: Whether an email has been sent for this validity period.
-                Defaults to False.
+            email_sent: Whether an email has been sent for this validity period.
+            renewal_token: Token sent with the renewal request. The user's token
+                will be cleared if this is None.
 
         Returns:
             New expiration date for this account, as a timestamp in
@@ -263,7 +271,10 @@ class AccountValidityHandler:
             expiration_ts = self.clock.time_msec() + self._account_validity.period
 
         await self.store.set_account_validity_for_user(
-            user_id=user_id, expiration_ts=expiration_ts, email_sent=email_sent
+            user_id=user_id,
+            expiration_ts=expiration_ts,
+            email_sent=email_sent,
+            renewal_token=renewal_token,
         )
 
         # Check if renewed users should be reintroduced to the user directory
