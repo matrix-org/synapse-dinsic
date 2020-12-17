@@ -686,8 +686,8 @@ class AccountValidityRenewalByEmailTestCase(unittest.HomeserverTestCase):
 
         (user_id, tok) = self.create_user()
 
-        # Move 6 days forward. This should trigger a renewal email to be sent.
-        self.reactor.advance(datetime.timedelta(days=6).total_seconds())
+        # Move 5 days forward. This should trigger a renewal email to be sent.
+        self.reactor.advance(datetime.timedelta(days=5).total_seconds())
         self.assertEqual(len(self.email_attempts), 1)
 
         # Retrieving the URL from the email is too much pain for now, so we
@@ -708,6 +708,28 @@ class AccountValidityRenewalByEmailTestCase(unittest.HomeserverTestCase):
         # Check that the HTML we're getting is the one we expect on a successful renewal.
         expiration_ts = self.get_success(self.store.get_expiration_ts_for_user(user_id))
         expected_html = self.hs.config.account_validity.account_renewed_template.render(
+            expiration_ts=expiration_ts
+        )
+        self.assertEqual(
+            channel.result["body"], expected_html.encode("utf8"), channel.result
+        )
+
+        # Move 1 day forward. Try to renew with the same token again.
+        url = "/_matrix/client/unstable/account_validity/renew?token=%s" % renewal_token
+        request, channel = self.make_request(b"GET", url)
+        self.render(request)
+        self.assertEquals(channel.result["code"], b"200", channel.result)
+
+        # Check that we're getting HTML back.
+        content_type = None
+        for header in channel.result.get("headers", []):
+            if header[0] == b"Content-Type":
+                content_type = header[1]
+        self.assertEqual(content_type, b"text/html; charset=utf-8", channel.result)
+
+        # Check that the HTML we're getting is the one we expect when reusing a
+        # token. The account expiration date should not have changed.
+        expected_html = self.hs.config.account_validity.account_previously_renewed_template.render(
             expiration_ts=expiration_ts
         )
         self.assertEqual(
