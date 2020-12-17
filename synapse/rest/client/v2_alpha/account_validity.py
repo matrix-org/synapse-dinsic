@@ -40,6 +40,9 @@ class AccountValidityRenewServlet(RestServlet):
         self.account_renewed_template = (
             hs.config.account_validity.account_renewed_template
         )
+        self.account_previously_renewed_template = (
+            hs.config.account_validity.account_previously_renewed_template
+        )
         self.invalid_token_template = hs.config.account_validity.invalid_token_template
 
     async def on_GET(self, request):
@@ -47,13 +50,22 @@ class AccountValidityRenewServlet(RestServlet):
             raise SynapseError(400, "Missing renewal token")
         renewal_token = request.args[b"token"][0]
 
-        token_valid, expiration_ts = await self.account_activity_handler.renew_account(
+        (
+            token_valid,
+            token_stale,
+            expiration_ts,
+        ) = await self.account_activity_handler.renew_account(
             renewal_token.decode("utf8")
         )
 
         if token_valid:
             status_code = 200
             response = self.account_renewed_template.render(expiration_ts=expiration_ts)
+        elif token_stale:
+            status_code = 200
+            response = self.account_previously_renewed_template.render(
+                expiration_ts=expiration_ts
+            )
         else:
             status_code = 404
             response = self.invalid_token_template.render(expiration_ts=expiration_ts)

@@ -223,22 +223,42 @@ class AccountValidityHandler:
                 attempts += 1
         raise StoreError(500, "Couldn't generate a unique string as refresh string.")
 
-    async def renew_account(self, renewal_token: str) -> Tuple[bool, int]:
+    async def renew_account(self, renewal_token: str) -> Tuple[bool, bool, int]:
         """Renews the account attached to a given renewal token by pushing back the
         expiration date by the current validity period in the server's configuration.
+
+        If it turns out that the token is valid but has already been used, then the
+        token is considered stale. Stale status is calculated by checking if an account
+        associated with the token has the `email_sent` DB column set to False. When a
+        renewal token if first sent out, this column is True. When the user renews using
+        this token, the column is set to False.
 
         Args:
             renewal_token: Token sent with the renewal request.
         Returns:
             A tuple containing:
               * A bool representing whether the token is valid.
-              * An int representing the new expiry timestamp as milliseconds since epoch,
-                or 0 if the token was invalid.
+              * A bool representing whether the token is stale.
+              * An int representing the user's expiry timestamp as milliseconds since the
+                epoch, or 0 if the token was invalid.
         """
         try:
-            user_id = await self.store.get_user_from_renewal_token(renewal_token)
+            (
+                user_id,
+                email_sent,
+                current_expiration_ts,
+            ) = await self.store.get_user_from_renewal_token(renewal_token)
         except StoreError:
-            return False, 0
+            return False, False, 0
+
+        # True if a user is found and email_sent is False, meaning the token has already
+        # been used. False otherwise.
+        if not email_sent:
+            logger.warning(
+                "User %s attempted to use previously used token to renew account",
+                user_id,
+            )
+            return False, True, current_expiration_ts
 
         logger.debug("Renewing an account for user %s", user_id)
 
@@ -248,7 +268,7 @@ class AccountValidityHandler:
             user_id, renewal_token=renewal_token
         )
 
-        return True, new_expiration_ts
+        return True, False, new_expiration_ts
 
     async def renew_account_for_user(
         self,

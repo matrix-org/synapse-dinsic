@@ -224,21 +224,28 @@ class RegistrationWorkerStore(SQLBaseStore):
             desc="set_renewal_token_for_user",
         )
 
-    async def get_user_from_renewal_token(self, renewal_token: str) -> str:
-        """Get a user ID from a renewal token.
+    async def get_user_from_renewal_token(
+        self, renewal_token: str
+    ) -> Tuple[str, bool, int]:
+        """Get a user ID and renewal status from a renewal token.
 
         Args:
             renewal_token: The renewal token to perform the lookup with.
 
         Returns:
-            The ID of the user to which the token belongs.
+            A tuple of containing the following values:
+                * The ID of a user to which the token belongs.
+                * Whether an email has been sent to the user with the token, and
+                    that they haven't renewed their account with it yet.
         """
-        return await self.db_pool.simple_select_one_onecol(
+        ret_dict = await self.db_pool.simple_select_one(
             table="account_validity",
             keyvalues={"renewal_token": renewal_token},
-            retcol="user_id",
+            retcols=["user_id", "email_sent", "expiration_ts_ms"],
             desc="get_user_from_renewal_token",
         )
+
+        return ret_dict["user_id"], ret_dict["email_sent"], ret_dict["expiration_ts_ms"]
 
     async def get_renewal_token_for_user(self, user_id: str) -> str:
         """Get the renewal token associated with a given user ID.
