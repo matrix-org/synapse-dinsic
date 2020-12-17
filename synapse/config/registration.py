@@ -55,14 +55,22 @@ class AccountValidityConfig(Config):
         account_renewed_template_filename = config.get(
             "account_renewed_html_path", "account_renewed.html"
         )
+        account_previously_renewed_template_filename = config.get(
+            "account_previously_renewed_html_path", "account_previously_renewed.html"
+        )
         invalid_token_template_filename = config.get(
             "invalid_token_html_path", "invalid_token.html"
         )
         (
             self.account_renewed_template,
+            self.account_previously_renewed_template,
             self.invalid_token_template,
         ) = self.read_templates(
-            [account_renewed_template_filename, invalid_token_template_filename]
+            [
+                account_renewed_template_filename,
+                account_previously_renewed_template_filename,
+                invalid_token_template_filename,
+            ]
         )
 
 
