@@ -139,6 +139,7 @@ class RegistrationWorkerStore(SQLBaseStore):
         expiration_ts: int,
         email_sent: bool,
         renewal_token: Optional[str] = None,
+        token_used_ts: Optional[int] = None,
     ) -> None:
         """Updates the account validity properties of the given account, with the
         given values.
@@ -152,6 +153,8 @@ class RegistrationWorkerStore(SQLBaseStore):
                 period.
             renewal_token: Renewal token the user can use to extend the validity
                 of their account. Defaults to no token.
+            token_used_ts: A timestamp of when the current token was used to renew
+                the account.
         """
 
         def set_account_validity_for_user_txn(txn):
@@ -163,6 +166,7 @@ class RegistrationWorkerStore(SQLBaseStore):
                     "expiration_ts_ms": expiration_ts,
                     "email_sent": email_sent,
                     "renewal_token": renewal_token,
+                    "token_used_ts_ms": token_used_ts,
                 },
             )
             self._invalidate_cache_and_stream(
@@ -207,7 +211,7 @@ class RegistrationWorkerStore(SQLBaseStore):
     async def set_renewal_token_for_user(
         self, user_id: str, renewal_token: str
     ) -> None:
-        """Defines a renewal token for a given user.
+        """Defines a renewal token for a given user, and clears the token_used timestamp.
 
         Args:
             user_id: ID of the user to set the renewal token for.
@@ -220,13 +224,13 @@ class RegistrationWorkerStore(SQLBaseStore):
         await self.db_pool.simple_update_one(
             table="account_validity",
             keyvalues={"user_id": user_id},
-            updatevalues={"renewal_token": renewal_token},
+            updatevalues={"renewal_token": renewal_token, "token_used_ts_ms": None},
             desc="set_renewal_token_for_user",
         )
 
     async def get_user_from_renewal_token(
         self, renewal_token: str
-    ) -> Tuple[str, bool, int]:
+    ) -> Tuple[str, bool, int, Optional[int]]:
         """Get a user ID and renewal status from a renewal token.
 
         Args:
@@ -239,15 +243,23 @@ class RegistrationWorkerStore(SQLBaseStore):
                     that they haven't renewed their account with it yet.
                 * An int representing the user's expiry timestamp as milliseconds since the
                     epoch, or 0 if the token was invalid.
+                * An optional int representing the timestamp of when the user renewed their
+                    account timestamp as milliseconds since the epoch. None if the account
+                    has not been renewed using the current token yet.
         """
         ret_dict = await self.db_pool.simple_select_one(
             table="account_validity",
             keyvalues={"renewal_token": renewal_token},
-            retcols=["user_id", "email_sent", "expiration_ts_ms"],
+            retcols=["user_id", "email_sent", "expiration_ts_ms", "token_used_ts_ms"],
             desc="get_user_from_renewal_token",
         )
 
-        return ret_dict["user_id"], ret_dict["email_sent"], ret_dict["expiration_ts_ms"]
+        return (
+            ret_dict["user_id"],
+            ret_dict["email_sent"],
+            ret_dict["expiration_ts_ms"],
+            ret_dict["token_used_ts_ms"],
+        )
 
     async def get_renewal_token_for_user(self, user_id: str) -> str:
         """Get the renewal token associated with a given user ID.

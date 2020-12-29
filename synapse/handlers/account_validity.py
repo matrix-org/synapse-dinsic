@@ -228,10 +228,8 @@ class AccountValidityHandler:
         expiration date by the current validity period in the server's configuration.
 
         If it turns out that the token is valid but has already been used, then the
-        token is considered stale. Stale status is calculated by checking if an account
-        associated with the token has the `email_sent` DB column set to False. When a
-        renewal token if first sent out, this column is True. When the user renews using
-        this token, the column is set to False.
+        token is considered stale. A token is stale if the 'token_used_ts_ms' db column
+        is non-null.
 
         Args:
             renewal_token: Token sent with the renewal request.
@@ -247,13 +245,13 @@ class AccountValidityHandler:
                 user_id,
                 email_sent,
                 current_expiration_ts,
+                token_used_ts,
             ) = await self.store.get_user_from_renewal_token(renewal_token)
         except StoreError:
             return False, False, 0
 
-        # True if a user is found and email_sent is False, meaning the token has already
-        # been used. False otherwise.
-        if not email_sent:
+        # Check whether this token has already been used.
+        if token_used_ts:
             logger.info(
                 "User '%s' attempted to use previously used token '%s' to renew account",
                 user_id,
@@ -293,14 +291,16 @@ class AccountValidityHandler:
             New expiration date for this account, as a timestamp in
             milliseconds since epoch.
         """
+        now = self.clock.time_msec()
         if expiration_ts is None:
-            expiration_ts = self.clock.time_msec() + self._account_validity.period
+            expiration_ts = now + self._account_validity.period
 
         await self.store.set_account_validity_for_user(
             user_id=user_id,
             expiration_ts=expiration_ts,
             email_sent=email_sent,
             renewal_token=renewal_token,
+            token_used_ts=now,
         )
 
         # Check if renewed users should be reintroduced to the user directory
