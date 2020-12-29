@@ -262,7 +262,7 @@ class AccountValidityHandler:
 
         logger.debug("Renewing an account for user %s", user_id)
 
-        # Renew the account. Keep the renewal token in tact for idempotency in case the
+        # Renew the account. Keep the renewal token intact for idempotency in case the
         # user attempts to renew their account with the same token.
         new_expiration_ts = await self.renew_account_for_user(
             user_id, renewal_token=renewal_token

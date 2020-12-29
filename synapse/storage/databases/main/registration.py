@@ -237,6 +237,8 @@ class RegistrationWorkerStore(SQLBaseStore):
                 * The ID of a user to which the token belongs.
                 * Whether an email has been sent to the user with the token, and
                     that they haven't renewed their account with it yet.
+                * An int representing the user's expiry timestamp as milliseconds since the
+                    epoch, or 0 if the token was invalid.
         """
         ret_dict = await self.db_pool.simple_select_one(
             table="account_validity",
