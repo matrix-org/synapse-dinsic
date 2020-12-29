@@ -254,9 +254,10 @@ class AccountValidityHandler:
         # True if a user is found and email_sent is False, meaning the token has already
         # been used. False otherwise.
         if not email_sent:
-            logger.warning(
-                "User %s attempted to use previously used token to renew account",
+            logger.info(
+                "User '%s' attempted to use previously used token '%s' to renew account",
                 user_id,
+                renewal_token,
             )
             return False, True, current_expiration_ts
 
