@@ -31,6 +31,11 @@ class AccountValidityConfig(Config):
         self.enabled = config.get("enabled", False)
         self.renew_by_email_enabled = "renew_at" in config
 
+        # These are set in RegistrationConfig.read_config
+        self.account_renewed_template = None
+        self.account_previously_renewed_template = None
+        self.invalid_token_template = None
+
         if self.enabled:
             if "period" in config:
                 self.period = self.parse_duration(config["period"])
