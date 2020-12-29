@@ -51,28 +51,6 @@ class AccountValidityConfig(Config):
             if "public_baseurl" not in synapse_config:
                 raise ConfigError("Can't send renewal emails without 'public_baseurl'")
 
-        # Load templates
-        account_renewed_template_filename = config.get(
-            "account_renewed_html_path", "account_renewed.html"
-        )
-        account_previously_renewed_template_filename = config.get(
-            "account_previously_renewed_html_path", "account_previously_renewed.html"
-        )
-        invalid_token_template_filename = config.get(
-            "invalid_token_html_path", "invalid_token.html"
-        )
-        (
-            self.account_renewed_template,
-            self.account_previously_renewed_template,
-            self.invalid_token_template,
-        ) = self.read_templates(
-            [
-                account_renewed_template_filename,
-                account_previously_renewed_template_filename,
-                invalid_token_template_filename,
-            ]
-        )
-
 
 class RegistrationConfig(Config):
     section = "registration"
@@ -88,6 +66,30 @@ class RegistrationConfig(Config):
 
         self.account_validity = AccountValidityConfig(
             config.get("account_validity") or {}, config
+        )
+
+        # Load account validity templates.
+        # We do this here instead of in AccountValidityConfig as read_templates
+        # relies on state that hasn't been initialised in AccountValidityConfig
+        account_renewed_template_filename = config.get(
+            "account_renewed_html_path", "account_renewed.html"
+        )
+        account_previously_renewed_template_filename = config.get(
+            "account_previously_renewed_html_path", "account_previously_renewed.html"
+        )
+        invalid_token_template_filename = config.get(
+            "invalid_token_html_path", "invalid_token.html"
+        )
+        (
+            self.account_validity.account_renewed_template,
+            self.account_validity.account_previously_renewed_template,
+            self.account_validity.invalid_token_template,
+        ) = self.read_templates(
+            [
+                account_renewed_template_filename,
+                account_previously_renewed_template_filename,
+                invalid_token_template_filename,
+            ]
         )
 
         self.registrations_require_3pid = config.get("registrations_require_3pid", [])
