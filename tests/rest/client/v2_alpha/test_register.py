@@ -699,11 +699,8 @@ class AccountValidityRenewalByEmailTestCase(unittest.HomeserverTestCase):
         self.assertEquals(channel.result["code"], b"200", channel.result)
 
         # Check that we're getting HTML back.
-        content_type = None
-        for header in channel.result.get("headers", []):
-            if header[0] == b"Content-Type":
-                content_type = header[1]
-        self.assertEqual(content_type, b"text/html; charset=utf-8", channel.result)
+        content_type = channel.headers.getRawHeaders(b"Content-Type")
+        self.assertEqual(content_type, [b"text/html; charset=utf-8"], channel.result)
 
         # Check that the HTML we're getting is the one we expect on a successful renewal.
         expiration_ts = self.get_success(self.store.get_expiration_ts_for_user(user_id))
@@ -721,11 +718,8 @@ class AccountValidityRenewalByEmailTestCase(unittest.HomeserverTestCase):
         self.assertEquals(channel.result["code"], b"200", channel.result)
 
         # Check that we're getting HTML back.
-        content_type = None
-        for header in channel.result.get("headers", []):
-            if header[0] == b"Content-Type":
-                content_type = header[1]
-        self.assertEqual(content_type, b"text/html; charset=utf-8", channel.result)
+        content_type = channel.headers.getRawHeaders(b"Content-Type")
+        self.assertEqual(content_type, [b"text/html; charset=utf-8"], channel.result)
 
         # Check that the HTML we're getting is the one we expect when reusing a
         # token. The account expiration date should not have changed.
@@ -753,11 +747,8 @@ class AccountValidityRenewalByEmailTestCase(unittest.HomeserverTestCase):
         self.assertEquals(channel.result["code"], b"404", channel.result)
 
         # Check that we're getting HTML back.
-        content_type = None
-        for header in channel.result.get("headers", []):
-            if header[0] == b"Content-Type":
-                content_type = header[1]
-        self.assertEqual(content_type, b"text/html; charset=utf-8", channel.result)
+        content_type = channel.headers.getRawHeaders(b"Content-Type")
+        self.assertEqual(content_type, [b"text/html; charset=utf-8"], channel.result)
 
         # Check that the HTML we're getting is the one we expect when using an
         # invalid/unknown token.
