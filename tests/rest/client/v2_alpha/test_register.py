@@ -863,7 +863,7 @@ class AccountValidityBackgroundJobTestCase(unittest.HomeserverTestCase):
         config["account_validity"] = {"enabled": False}
 
         self.hs = self.setup_test_homeserver(config=config)
-        self.hs.config.account_validity_period = self.validity_period
+        self.hs.get_datastore()._account_validity_period = self.validity_period
 
         self.store = self.hs.get_datastore()
 
@@ -877,7 +877,7 @@ class AccountValidityBackgroundJobTestCase(unittest.HomeserverTestCase):
         """
         user_id = self.register_user("kermit_delta", "user")
 
-        self.hs.config.account_validity_startup_job_max_delta = self.max_delta
+        self.hs.get_datastore()._account_validity_startup_job_max_delta = self.max_delta
 
         now_ms = self.hs.clock.time_msec()
         self.get_success(self.store._set_expiration_date_when_missing())
