@@ -19,7 +19,7 @@ class AccountValidityConfig(Config):
     section = "account_validity"
 
     def read_config(self, config, **kwargs):
-        account_validity_config = config.get("account_validity", {})
+        account_validity_config = config.get("account_validity") or {}
         self.account_validity_enabled = account_validity_config.get("enabled", False)
         self.account_validity_renew_by_email_enabled = (
             "renew_at" in account_validity_config
