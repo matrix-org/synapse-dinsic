@@ -248,7 +248,7 @@ class RegistrationWorkerStore(SQLBaseStore):
         ret_dict = await self.db_pool.simple_select_one(
             table="account_validity",
             keyvalues={"renewal_token": renewal_token},
-            retcols=["user_id", "email_sent", "expiration_ts_ms", "token_used_ts_ms"],
+            retcols=["user_id", "expiration_ts_ms", "token_used_ts_ms"],
             desc="get_user_from_renewal_token",
         )
 
