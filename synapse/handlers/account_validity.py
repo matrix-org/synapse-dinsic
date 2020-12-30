@@ -244,7 +244,7 @@ class AccountValidityHandler:
             renewal_token: Token sent with the renewal request.
         Returns:
             A tuple containing:
-              * A bool representing whether the token is valid.
+              * A bool representing whether the token is valid and unused.
               * A bool representing whether the token is stale.
               * An int representing the user's expiry timestamp as milliseconds since the
                 epoch, or 0 if the token was invalid.
