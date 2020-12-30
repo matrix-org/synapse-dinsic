@@ -230,7 +230,7 @@ class RegistrationWorkerStore(SQLBaseStore):
 
     async def get_user_from_renewal_token(
         self, renewal_token: str
-    ) -> Tuple[str, bool, int, Optional[int]]:
+    ) -> Tuple[str, int, Optional[int]]:
         """Get a user ID and renewal status from a renewal token.
 
         Args:
@@ -239,8 +239,6 @@ class RegistrationWorkerStore(SQLBaseStore):
         Returns:
             A tuple of containing the following values:
                 * The ID of a user to which the token belongs.
-                * Whether an email has been sent to the user with the token, and
-                    that they haven't renewed their account with it yet.
                 * An int representing the user's expiry timestamp as milliseconds since the
                     epoch, or 0 if the token was invalid.
                 * An optional int representing the timestamp of when the user renewed their
@@ -256,7 +254,6 @@ class RegistrationWorkerStore(SQLBaseStore):
 
         return (
             ret_dict["user_id"],
-            ret_dict["email_sent"],
             ret_dict["expiration_ts_ms"],
             ret_dict["token_used_ts_ms"],
         )

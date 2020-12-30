@@ -243,7 +243,6 @@ class AccountValidityHandler:
         try:
             (
                 user_id,
-                email_sent,
                 current_expiration_ts,
                 token_used_ts,
             ) = await self.store.get_user_from_renewal_token(renewal_token)
@@ -261,8 +260,12 @@ class AccountValidityHandler:
 
         logger.debug("Renewing an account for user %s", user_id)
 
-        # Renew the account. Keep the renewal token intact for idempotency in case the
-        # user attempts to renew their account with the same token.
+        # Renew the account. Pass the renewal_token here so that it is not cleared.
+        # We want to keep the token around in case the user attempts to renew their
+        # account with the same token twice (clicking the email link twice).
+        #
+        # In that case, the token will be accepted, but the account's expiration ts
+        # will remain unchanged.
         new_expiration_ts = await self.renew_account_for_user(
             user_id, renewal_token=renewal_token
         )
