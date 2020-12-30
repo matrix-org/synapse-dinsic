@@ -37,29 +37,38 @@ class AccountValidityHandler:
         self.sendmail = self.hs.get_sendmail()
         self.clock = self.hs.get_clock()
 
-        self._account_validity = self.hs.config.account_validity
+        self._account_validity_enabled = self.hs.config.account_validity_enabled
+        self._account_validity_renew_by_email_enabled = (
+            self.hs.config.account_validity_renew_by_email_enabled
+        )
         self._show_users_in_user_directory = self.hs.config.show_users_in_user_directory
         self.profile_handler = self.hs.get_profile_handler()
 
+        if self._account_validity_enabled:
+            self._account_validity_period = self.hs.config.account_validity_period
+
         if (
-            self._account_validity.enabled
-            and self._account_validity.renew_by_email_enabled
+            self._account_validity_enabled
+            and self._account_validity_renew_by_email_enabled
         ):
             # Don't do email-specific configuration if renewal by email is disabled.
             self._template_html = self.config.account_validity_template_html
             self._template_text = self.config.account_validity_template_text
+            self._account_validity_renew_email_subject = (
+                self.hs.config.account_validity_renew_email_subject
+            )
 
             try:
                 app_name = self.hs.config.email_app_name
 
-                self._subject = self._account_validity.renew_email_subject % {
+                self._subject = self._account_validity_renew_email_subject % {
                     "app": app_name
                 }
 
                 self._from_string = self.hs.config.email_notif_from % {"app": app_name}
             except Exception:
                 # If substitution failed, fall back to the bare strings.
-                self._subject = self._account_validity.renew_email_subject
+                self._subject = self._account_validity_renew_email_subject
                 self._from_string = self.hs.config.email_notif_from
 
             self._raw_from = email.utils.parseaddr(self._from_string)[1]
@@ -75,7 +84,7 @@ class AccountValidityHandler:
             self.clock.looping_call(send_emails, 30 * 60 * 1000)
 
         # Mark users as inactive when they expired. Check once every hour
-        if self._account_validity.enabled:
+        if self._account_validity_enabled:
 
             def mark_expired_users_as_inactive():
                 # run as a background process to allow async functions to work
@@ -296,7 +305,7 @@ class AccountValidityHandler:
         """
         now = self.clock.time_msec()
         if expiration_ts is None:
-            expiration_ts = now + self._account_validity.period
+            expiration_ts = now + self._account_validity_period
 
         await self.store.set_account_validity_for_user(
             user_id=user_id,

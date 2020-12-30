@@ -296,7 +296,7 @@ class RegistrationWorkerStore(SQLBaseStore):
             "get_users_expiring_soon",
             select_users_txn,
             self.clock.time_msec(),
-            self.config.account_validity.renew_at,
+            self.config.account_validity_renew_at,
         )
 
     async def set_renewal_mail_status(self, user_id: str, email_sent: bool) -> None:
@@ -1008,10 +1008,14 @@ class RegistrationStore(RegistrationBackgroundUpdateStore):
     def __init__(self, database: DatabasePool, db_conn, hs):
         super().__init__(database, db_conn, hs)
 
-        self._account_validity = hs.config.account_validity
+        self._account_validity_enabled = hs.config.account_validity_enabled
         self._ignore_unknown_session_error = hs.config.request_token_inhibit_3pid_errors
 
-        if self._account_validity.enabled:
+        if self._account_validity_enabled:
+            self._account_validity_period = hs.config.account_validity_period
+            self._account_validity_startup_job_max_delta = (
+                hs.config.account_validity_startup_job_max_delta
+            )
             self._clock.call_later(
                 0.0,
                 run_as_background_process,
@@ -1171,7 +1175,7 @@ class RegistrationStore(RegistrationBackgroundUpdateStore):
         except self.database_engine.module.IntegrityError:
             raise StoreError(400, "User ID already taken.", errcode=Codes.USER_IN_USE)
 
-        if self._account_validity.enabled:
+        if self._account_validity_enabled:
             self.set_expiration_date_for_user_txn(txn, user_id)
 
         if create_profile_with_displayname:
@@ -1629,11 +1633,11 @@ class RegistrationStore(RegistrationBackgroundUpdateStore):
                 delta equal to 10% of the validity period.
         """
         now_ms = self._clock.time_msec()
-        expiration_ts = now_ms + self._account_validity.period
+        expiration_ts = now_ms + self._account_validity_period
 
         if use_delta:
             expiration_ts = self.rand.randrange(
-                expiration_ts - self._account_validity.startup_job_max_delta,
+                expiration_ts - self._account_validity_startup_job_max_delta,
                 expiration_ts,
             )
 

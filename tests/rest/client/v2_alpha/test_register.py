@@ -704,7 +704,7 @@ class AccountValidityRenewalByEmailTestCase(unittest.HomeserverTestCase):
 
         # Check that the HTML we're getting is the one we expect on a successful renewal.
         expiration_ts = self.get_success(self.store.get_expiration_ts_for_user(user_id))
-        expected_html = self.hs.config.account_validity.account_renewed_template.render(
+        expected_html = self.hs.config.account_validity_account_renewed_template.render(
             expiration_ts=expiration_ts
         )
         self.assertEqual(
@@ -723,7 +723,7 @@ class AccountValidityRenewalByEmailTestCase(unittest.HomeserverTestCase):
 
         # Check that the HTML we're getting is the one we expect when reusing a
         # token. The account expiration date should not have changed.
-        expected_html = self.hs.config.account_validity.account_previously_renewed_template.render(
+        expected_html = self.hs.config.account_validity_account_previously_renewed_template.render(
             expiration_ts=expiration_ts
         )
         self.assertEqual(
@@ -752,7 +752,7 @@ class AccountValidityRenewalByEmailTestCase(unittest.HomeserverTestCase):
 
         # Check that the HTML we're getting is the one we expect when using an
         # invalid/unknown token.
-        expected_html = self.hs.config.account_validity.invalid_token_template.render()
+        expected_html = self.hs.config.account_validity_invalid_token_template.render()
         self.assertEqual(
             channel.result["body"], expected_html.encode("utf8"), channel.result
         )
@@ -863,7 +863,7 @@ class AccountValidityBackgroundJobTestCase(unittest.HomeserverTestCase):
         config["account_validity"] = {"enabled": False}
 
         self.hs = self.setup_test_homeserver(config=config)
-        self.hs.config.account_validity.period = self.validity_period
+        self.hs.config.account_validity_period = self.validity_period
 
         self.store = self.hs.get_datastore()
 
@@ -877,7 +877,7 @@ class AccountValidityBackgroundJobTestCase(unittest.HomeserverTestCase):
         """
         user_id = self.register_user("kermit_delta", "user")
 
-        self.hs.config.account_validity.startup_job_max_delta = self.max_delta
+        self.hs.config.account_validity_startup_job_max_delta = self.max_delta
 
         now_ms = self.hs.clock.time_msec()
         self.get_success(self.store._set_expiration_date_when_missing())
