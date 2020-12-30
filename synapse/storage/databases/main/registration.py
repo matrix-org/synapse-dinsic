@@ -1011,6 +1011,8 @@ class RegistrationStore(RegistrationBackgroundUpdateStore):
         self._account_validity_enabled = hs.config.account_validity_enabled
         self._ignore_unknown_session_error = hs.config.request_token_inhibit_3pid_errors
 
+        self._account_validity_period = None
+        self._account_validity_startup_job_max_delta = None
         if self._account_validity_enabled:
             self._account_validity_period = hs.config.account_validity_period
             self._account_validity_startup_job_max_delta = (

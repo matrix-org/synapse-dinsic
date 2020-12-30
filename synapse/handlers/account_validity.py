@@ -44,6 +44,7 @@ class AccountValidityHandler:
         self._show_users_in_user_directory = self.hs.config.show_users_in_user_directory
         self.profile_handler = self.hs.get_profile_handler()
 
+        self._account_validity_period = None
         if self._account_validity_enabled:
             self._account_validity_period = self.hs.config.account_validity_period
 
@@ -54,21 +55,19 @@ class AccountValidityHandler:
             # Don't do email-specific configuration if renewal by email is disabled.
             self._template_html = self.config.account_validity_template_html
             self._template_text = self.config.account_validity_template_text
-            self._account_validity_renew_email_subject = (
+            account_validity_renew_email_subject = (
                 self.hs.config.account_validity_renew_email_subject
             )
 
             try:
                 app_name = self.hs.config.email_app_name
 
-                self._subject = self._account_validity_renew_email_subject % {
-                    "app": app_name
-                }
+                self._subject = account_validity_renew_email_subject % {"app": app_name}
 
                 self._from_string = self.hs.config.email_notif_from % {"app": app_name}
             except Exception:
                 # If substitution failed, fall back to the bare strings.
-                self._subject = self._account_validity_renew_email_subject
+                self._subject = account_validity_renew_email_subject
                 self._from_string = self.hs.config.email_notif_from
 
             self._raw_from = email.utils.parseaddr(self._from_string)[1]
