@@ -863,7 +863,12 @@ class AccountValidityBackgroundJobTestCase(unittest.HomeserverTestCase):
         config["account_validity"] = {"enabled": False}
 
         self.hs = self.setup_test_homeserver(config=config)
+
+        # We need to set these directly, instead of in the homeserver config dict above.
+        # This is due to account validity-related config options not being read by
+        # Synapse when account_validity.enabled is False.
         self.hs.get_datastore()._account_validity_period = self.validity_period
+        self.hs.get_datastore()._account_validity_startup_job_max_delta = self.max_delta
 
         self.store = self.hs.get_datastore()
 
@@ -876,8 +881,6 @@ class AccountValidityBackgroundJobTestCase(unittest.HomeserverTestCase):
         allowed range.
         """
         user_id = self.register_user("kermit_delta", "user")
-
-        self.hs.get_datastore()._account_validity_startup_job_max_delta = self.max_delta
 
         now_ms = self.hs.clock.time_msec()
         self.get_success(self.store._set_expiration_date_when_missing())
