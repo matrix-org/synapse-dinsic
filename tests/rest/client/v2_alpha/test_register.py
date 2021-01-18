@@ -376,11 +376,6 @@ class AccountValidityTemplateDirectoryTestCase(unittest.HomeserverTestCase):
             self.invalid_token_template_contents,
         )
 
-    def tearDown(self) -> None:
-        # Close the template file descriptors
-        os.close(self.account_renewed_fd)
-        os.close(self.invalid_token_fd)
-
 
 class AccountValidityTestCase(unittest.HomeserverTestCase):
 
