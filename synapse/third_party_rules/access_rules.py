@@ -74,7 +74,9 @@ class RoomAccessRules(object):
             # using the /info endpoint. Required.
             id_server: "vector.im"
 
-            # enable freezing room when nobody is admin there
+            # Enable freezing a room when the last room admin leaves.
+            # Note that the departing admin must be a local user in order for this feature
+            # to work.
             freeze_room_with_no_admin: false
 
     Don't forget to consider if you can invite users from your own domain.
@@ -89,6 +91,8 @@ class RoomAccessRules(object):
         self.domains_forbidden_when_restricted = config.get(
             "domains_forbidden_when_restricted", []
         )
+
+        self.freeze_room_with_no_admin = config.get("freeze_room_with_no_admin", False)
 
     @staticmethod
     def parse_config(config: Dict) -> Dict:
@@ -465,7 +469,7 @@ class RoomAccessRules(object):
             # We have to freeze the room by puppeting an admin user, which we can
             # only do for local users
             if (
-                self.config.get("freeze_room_with_no_admin", False)
+                self.freeze_room_with_no_admin
                 and self._is_local_user(event.sender)
                 and event.membership == Membership.LEAVE
             ):
