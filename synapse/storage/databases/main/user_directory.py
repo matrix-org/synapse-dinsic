@@ -555,6 +555,10 @@ class UserDirectoryStore(UserDirectoryBackgroundUpdateStore):
     def __init__(self, database: DatabasePool, db_conn, hs):
         super().__init__(database, db_conn, hs)
 
+        self.user_directory_search_module = hs.get_user_directory_search_module()
+        self.user_directory_search_ordering_postgres = None
+        self.user_directory_search_ordering_sqlite = None
+
     async def remove_from_user_dir(self, user_id: str) -> None:
         def _remove_from_user_dir_txn(txn):
             self.db_pool.simple_delete_txn(
@@ -747,14 +751,19 @@ class UserDirectoryStore(UserDirectoryBackgroundUpdateStore):
                 )
             """
 
+        # Determine the search ordering to use
+        if self.user_directory_search_ordering_postgres is None:
+            self.user_directory_search_ordering_postgres = await self.user_directory_search_module.get_search_query_ordering(
+                PostgresEngine
+            )
+        if self.user_directory_search_ordering_sqlite is None:
+            self.user_directory_search_ordering_sqlite = await self.user_directory_search_module.get_search_query_ordering(
+                Sqlite3Engine
+            )
+
         if isinstance(self.database_engine, PostgresEngine):
             full_query, exact_query, prefix_query = _parse_query_postgres(search_term)
 
-            # We order by rank and then if they have profile info
-            # The ranking algorithm is hand tweaked for "best" results. Broadly
-            # the idea is we give a higher weight to exact matches.
-            # The array of numbers are the weights for the various part of the
-            # search: (domain, _, display name, localpart)
             sql = """
                 SELECT d.user_id AS user_id, display_name, avatar_url
                 FROM user_directory_search as t
@@ -762,30 +771,11 @@ class UserDirectoryStore(UserDirectoryBackgroundUpdateStore):
                 WHERE
                     %s
                     AND vector @@ to_tsquery('english', ?)
-                ORDER BY
-                    (CASE WHEN d.user_id IS NOT NULL THEN 4.0 ELSE 1.0 END)
-                    * (CASE WHEN display_name IS NOT NULL THEN 1.2 ELSE 1.0 END)
-                    * (CASE WHEN avatar_url IS NOT NULL THEN 1.2 ELSE 1.0 END)
-                    * (
-                        3 * ts_rank_cd(
-                            '{0.1, 0.1, 0.9, 1.0}',
-                            vector,
-                            to_tsquery('english', ?),
-                            8
-                        )
-                        + ts_rank_cd(
-                            '{0.1, 0.1, 0.9, 1.0}',
-                            vector,
-                            to_tsquery('english', ?),
-                            8
-                        )
-                    )
-                    DESC,
-                    display_name IS NULL,
-                    avatar_url IS NULL
+                ORDER BY %s
                 LIMIT ?
             """ % (
                 where_clause,
+                self.user_directory_search_ordering_postgres,
             )
             args = join_args + (full_query, exact_query, prefix_query, limit + 1)
         elif isinstance(self.database_engine, Sqlite3Engine):
@@ -799,12 +789,11 @@ class UserDirectoryStore(UserDirectoryBackgroundUpdateStore):
                     %s
                     AND value MATCH ?
                 ORDER BY
-                    rank(matchinfo(user_directory_search)) DESC,
-                    display_name IS NULL,
-                    avatar_url IS NULL
+                    %s
                 LIMIT ?
             """ % (
                 where_clause,
+                self.user_directory_search_ordering_sqlite,
             )
             args = join_args + (search_query, limit + 1)
         else:
