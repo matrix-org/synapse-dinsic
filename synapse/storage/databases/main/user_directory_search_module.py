@@ -29,7 +29,16 @@ class UserDirectorySearchModule:
     """
 
     def __init__(self, hs: "HomeServer"):
-        pass
+        # If defined, calls to methods will be redirected to this module instead
+        self.custom_module = None
+
+        module = None
+        config = None
+        if hs.config.custom_user_directory_search_module:
+            module, config = hs.config.custom_user_directory_search_module
+
+        if module is not None:
+            self.custom_module = module(config=config, module_api=hs.get_module_api())
 
     async def get_search_query_ordering(
         self, database_engine_type: BaseDatabaseEngine
@@ -46,40 +55,43 @@ class UserDirectorySearchModule:
             A string that can be placed after ORDER BY in order to influence the
             ordering of results from a user directory search.
         """
-        if database_engine_type == PostgresEngine:
-            # We order by rank and then if a user has profile info.
-            # This ranking algorithm is hand tweaked for "best" results. Broadly
-            # the idea is that a higher weight is given to exact matches.
-            # The array of numbers are the weights for the various part of the
-            # search: (domain, _, display name, localpart)
-            return """
-                (CASE WHEN d.user_id IS NOT NULL THEN 4.0 ELSE 1.0 END)
-                * (CASE WHEN display_name IS NOT NULL THEN 1.2 ELSE 1.0 END)
-                * (CASE WHEN avatar_url IS NOT NULL THEN 1.2 ELSE 1.0 END)
-                * (
-                    3 * ts_rank_cd(
-                        '{0.1, 0.1, 0.9, 1.0}',
-                        vector,
-                        to_tsquery('english', ?),
-                        8
+        if self.custom_module is None:
+            if database_engine_type == PostgresEngine:
+                # We order by rank and then if a user has profile info.
+                # This ranking algorithm is hand tweaked for "best" results. Broadly
+                # the idea is that a higher weight is given to exact matches.
+                # The array of numbers are the weights for the various part of the
+                # search: (domain, _, display name, localpart)
+                return """
+                    (CASE WHEN d.user_id IS NOT NULL THEN 4.0 ELSE 1.0 END)
+                    * (CASE WHEN display_name IS NOT NULL THEN 1.2 ELSE 1.0 END)
+                    * (CASE WHEN avatar_url IS NOT NULL THEN 1.2 ELSE 1.0 END)
+                    * (
+                        3 * ts_rank_cd(
+                            '{0.1, 0.1, 0.9, 1.0}',
+                            vector,
+                            to_tsquery('english', ?),
+                            8
+                        )
+                        + ts_rank_cd(
+                            '{0.1, 0.1, 0.9, 1.0}',
+                            vector,
+                            to_tsquery('english', ?),
+                            8
+                        )
                     )
-                    + ts_rank_cd(
-                        '{0.1, 0.1, 0.9, 1.0}',
-                        vector,
-                        to_tsquery('english', ?),
-                        8
-                    )
-                )
-                DESC,
-                display_name IS NULL,
-                avatar_url IS NULL
-            """
-        elif database_engine_type == Sqlite3Engine:
-            # We order by rank and then if a user has profile info.
-            return """
-                rank(matchinfo(user_directory_search)) DESC,
-                display_name IS NULL,
-                avatar_url IS NULL
-            """
-        else:
-            raise Exception("Received an unrecognized database engine")
+                    DESC,
+                    display_name IS NULL,
+                    avatar_url IS NULL
+                """
+            elif database_engine_type == Sqlite3Engine:
+                # We order by rank and then if a user has profile info.
+                return """
+                    rank(matchinfo(user_directory_search)) DESC,
+                    display_name IS NULL,
+                    avatar_url IS NULL
+                """
+            else:
+                raise Exception("Received an unrecognized database engine")
+
+        return await self.custom_module.get_search_query_ordering(database_engine_type)

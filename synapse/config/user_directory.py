@@ -12,6 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+from synapse.util.module_loader import load_module
 
 from ._base import Config
 
@@ -27,7 +28,8 @@ class UserDirectoryConfig(Config):
         self.user_directory_search_enabled = True
         self.user_directory_search_all_users = False
         self.user_directory_defer_to_id_server = None
-        user_directory_config = config.get("user_directory", None)
+        self.user_directory_search_module = None
+        user_directory_config = config.get("user_directory") or {}
         if user_directory_config:
             self.user_directory_search_enabled = user_directory_config.get(
                 "enabled", True
@@ -38,6 +40,10 @@ class UserDirectoryConfig(Config):
             self.user_directory_defer_to_id_server = user_directory_config.get(
                 "defer_to_id_server", None
             )
+
+            provider = user_directory_config.get("user_directory_search_module", None)
+            if provider is not None:
+                self.user_directory_search_module = load_module(provider)
 
     def generate_config_section(self, config_dir_path, server_name, **kwargs):
         return """
@@ -61,4 +67,14 @@ class UserDirectoryConfig(Config):
         #  # of synapse performing the search itself.
         #  # This is an experimental API.
         #  defer_to_id_server: https://id.example.com
+        #
+        #  # Server admins can define a Python module that implements extra rules for
+        #  # user directory search. In order to work, this module needs to
+        #  # override the methods defined in
+        #  # synapse/storage/database/main/user_directory_search_module.py.
+        #  #
+        #  custom_user_directory_search_module:
+        #    module: "my_custom_module.UserDirectorySearch"
+        #    config:
+        #      example_option: 'things'
         """
