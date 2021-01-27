@@ -555,7 +555,7 @@ class UserDirectoryStore(UserDirectoryBackgroundUpdateStore):
     def __init__(self, database: DatabasePool, db_conn, hs):
         super().__init__(database, db_conn, hs)
 
-        self.user_directory_search_module = hs.get_user_directory_search_module()
+        self.user_directory_search_module = None
         self.user_directory_search_ordering_postgres = None
         self.user_directory_search_ordering_sqlite = None
 
@@ -735,6 +735,12 @@ class UserDirectoryStore(UserDirectoryBackgroundUpdateStore):
                     ]
                 }
         """
+
+        # Loading this module cannot happen during init as it loads ModuleApi,
+        # which requires access to the database, which this class' init function
+        # is required to set up
+        if not self.user_directory_search_module:
+            self.user_directory_search_module = self.hs.get_user_directory_search_module()
 
         if self.hs.config.user_directory_search_all_users:
             join_args = (user_id,)

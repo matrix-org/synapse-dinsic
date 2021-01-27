@@ -73,7 +73,7 @@ class UserDirectoryConfig(Config):
         #  # override the methods defined in
         #  # synapse/storage/database/main/user_directory_search_module.py.
         #  #
-        #  custom_user_directory_search_module:
+        #  user_directory_search_module:
         #    module: "my_custom_module.UserDirectorySearch"
         #    config:
         #      example_option: 'things'
