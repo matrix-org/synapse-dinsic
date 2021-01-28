@@ -555,9 +555,19 @@ class UserDirectoryStore(UserDirectoryBackgroundUpdateStore):
     def __init__(self, database: DatabasePool, db_conn, hs):
         super().__init__(database, db_conn, hs)
 
+        # Either the built-in or a custom user directory search module if
+        # one has been defined in the config.
+        # We need to initialise the module outside of __init__ as it relies
+        # on the database being setup.
         self.user_directory_search_module = None
+
+        # Holds generated SQL from the user directory search module
         self.user_directory_search_ordering_postgres = None
         self.user_directory_search_ordering_sqlite = None
+
+        # Iterables to hold the arguments returned by the module
+        self.pg_module_args = ()
+        self.sqlite_module_args = ()
 
     async def remove_from_user_dir(self, user_id: str) -> None:
         def _remove_from_user_dir_txn(txn):
@@ -740,7 +750,9 @@ class UserDirectoryStore(UserDirectoryBackgroundUpdateStore):
         # which requires access to the database, which this class' init function
         # is required to set up
         if not self.user_directory_search_module:
-            self.user_directory_search_module = self.hs.get_user_directory_search_module()
+            self.user_directory_search_module = (
+                self.hs.get_user_directory_search_module()
+            )
 
         if self.hs.config.user_directory_search_all_users:
             join_args = (user_id,)
@@ -759,11 +771,17 @@ class UserDirectoryStore(UserDirectoryBackgroundUpdateStore):
 
         # Determine the search ordering to use
         if self.user_directory_search_ordering_postgres is None:
-            self.user_directory_search_ordering_postgres = await self.user_directory_search_module.get_search_query_ordering(
+            (
+                self.user_directory_search_ordering_postgres,
+                self.pg_module_args,
+            ) = self.user_directory_search_module.get_search_query_ordering(
                 PostgresEngine
             )
         if self.user_directory_search_ordering_sqlite is None:
-            self.user_directory_search_ordering_sqlite = await self.user_directory_search_module.get_search_query_ordering(
+            (
+                self.user_directory_search_ordering_sqlite,
+                self.sqlite_module_args,
+            ) = self.user_directory_search_module.get_search_query_ordering(
                 Sqlite3Engine
             )
 
@@ -783,7 +801,12 @@ class UserDirectoryStore(UserDirectoryBackgroundUpdateStore):
                 where_clause,
                 self.user_directory_search_ordering_postgres,
             )
-            args = join_args + (full_query, exact_query, prefix_query, limit + 1)
+            args = (
+                join_args
+                + (full_query, exact_query, prefix_query)
+                + self.pg_module_args
+                + (limit + 1,)
+            )
         elif isinstance(self.database_engine, Sqlite3Engine):
             search_query = _parse_query_sqlite(search_term)
 
@@ -801,7 +824,7 @@ class UserDirectoryStore(UserDirectoryBackgroundUpdateStore):
                 where_clause,
                 self.user_directory_search_ordering_sqlite,
             )
-            args = join_args + (search_query, limit + 1)
+            args = join_args + (search_query,) + self.sqlite_module_args + (limit + 1,)
         else:
             # This should be unreachable.
             raise Exception("Unrecognized database engine")
