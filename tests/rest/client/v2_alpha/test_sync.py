@@ -351,7 +351,7 @@ class SyncKnockTestCase(
         self.knocker_tok = self.login("knocker", "monkey")
 
         # Perform an initial sync for the knocking user.
-        channel = self.make_request(
+        _, channel = self.make_request(
             "GET", self.url % self.next_batch, access_token=self.tok,
         )
         self.assertEqual(channel.code, 200, channel.json_body)
@@ -368,7 +368,7 @@ class SyncKnockTestCase(
     def test_knock_room_state(self):
         """Tests that /sync returns state from a room after knocking on it."""
         # Knock on a room
-        channel = self.make_request(
+        _, channel = self.make_request(
             "POST",
             "/_matrix/client/unstable/xyz.amorgan.knock/%s" % (self.room_id,),
             b"{}",
@@ -383,7 +383,7 @@ class SyncKnockTestCase(
         }
 
         # Check that /sync includes stripped state from the room
-        channel = self.make_request(
+        _, channel = self.make_request(
             "GET", self.url % self.next_batch, access_token=self.knocker_tok,
         )
         self.assertEqual(channel.code, 200, channel.json_body)
