@@ -781,7 +781,7 @@ class UserDirectoryStore(UserDirectoryBackgroundUpdateStore):
                 INNER JOIN user_directory AS d USING (user_id)
                 WHERE
                     %(where_clause)s
-                    AND vector @@ to_tsquery('simple', ?)
+                    AND vector @@ to_tsquery('english', ?)
                 ORDER BY
                     (CASE WHEN d.user_id IS NOT NULL THEN 4.0 ELSE 1.0 END)
                     * (CASE WHEN display_name IS NOT NULL THEN 1.2 ELSE 1.0 END)
