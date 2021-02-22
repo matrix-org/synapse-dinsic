@@ -16,8 +16,6 @@ import email.utils
 import logging
 from typing import Dict, List, Optional, Tuple
 
-from twisted.internet import defer
-
 from synapse.api.constants import EventTypes, JoinRules, Membership, RoomCreationPreset
 from synapse.api.errors import SynapseError
 from synapse.config._base import ConfigError
