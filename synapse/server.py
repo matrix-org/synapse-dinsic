@@ -24,7 +24,6 @@
 import abc
 import functools
 import logging
-import os
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, TypeVar, cast
 
 import twisted.internet.base
@@ -360,11 +359,7 @@ class HomeServer(metaclass=abc.ABCMeta):
         """
         An HTTP client that uses configured HTTP(S) proxies.
         """
-        return SimpleHttpClient(
-            self,
-            http_proxy=os.getenvb(b"http_proxy"),
-            https_proxy=os.getenvb(b"HTTPS_PROXY"),
-        )
+        return SimpleHttpClient(self, use_proxy=True)
 
     @cache_in_self
     def get_proxied_blacklisted_http_client(self) -> SimpleHttpClient:
@@ -373,10 +368,7 @@ class HomeServer(metaclass=abc.ABCMeta):
         based on the IP range blacklist.
         """
         return SimpleHttpClient(
-            self,
-            ip_blacklist=self.config.ip_range_blacklist,
-            http_proxy=os.getenvb(b"http_proxy"),
-            https_proxy=os.getenvb(b"HTTPS_PROXY"),
+            self, ip_blacklist=self.config.ip_range_blacklist, use_proxy=True,
         )
 
     @cache_in_self
