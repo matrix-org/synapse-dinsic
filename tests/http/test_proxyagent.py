@@ -252,8 +252,7 @@ class MatrixFederationAgentTests(TestCase):
         self._do_https_request_via_proxy(auth_credentials="bob:pinkponies")
 
     def _do_https_request_via_proxy(
-        self,
-        auth_credentials: Optional[str] = None,
+        self, auth_credentials: Optional[str] = None,
     ):
         agent = ProxyAgent(
             self.reactor, contextFactory=get_test_https_policy(), use_proxy=True,
