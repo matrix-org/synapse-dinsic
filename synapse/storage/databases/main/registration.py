@@ -237,18 +237,26 @@ class RegistrationWorkerStore(CacheInvalidationWorkerStore):
             desc="set_renewal_token_for_user",
         )
 
-    async def get_user_from_renewal_token(self, renewal_token: str) -> str:
+    async def get_user_from_renewal_token(
+        self, renewal_token: str, user_id: Optional[str],
+    ) -> str:
         """Get a user ID from a renewal token.
 
         Args:
             renewal_token: The renewal token to perform the lookup with.
+            user_id: ID of the user the renewal token should be associated with. Might be
+                None if the token is a legacy one, since these don't need authentication.
 
         Returns:
             The ID of the user to which the token belongs.
         """
+        kv = {"renewal_token": renewal_token}
+        if user_id is not None:
+            kv["user_id"] = user_id
+
         return await self.db_pool.simple_select_one_onecol(
             table="account_validity",
-            keyvalues={"renewal_token": renewal_token},
+            keyvalues=kv,
             retcol="user_id",
             desc="get_user_from_renewal_token",
         )

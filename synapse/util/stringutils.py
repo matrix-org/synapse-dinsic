@@ -40,6 +40,10 @@ def random_string_with_symbols(length):
     return "".join(rand.choice(_string_with_symbols) for _ in range(length))
 
 
+def random_digit_string(length):
+    return "".join(rand.choice(string.digits) for _ in range(length))
+
+
 def is_ascii(s):
     if isinstance(s, bytes):
         try:

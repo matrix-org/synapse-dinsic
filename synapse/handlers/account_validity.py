@@ -18,7 +18,7 @@ import email.utils
 import logging
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
-from typing import TYPE_CHECKING, List
+from typing import TYPE_CHECKING, List, Optional
 
 from synapse.api.errors import StoreError, SynapseError
 from synapse.logging.context import make_deferred_yieldable
@@ -208,30 +208,26 @@ class AccountValidityHandler:
         Returns:
             The generated string.
 
-        Raises:
-            StoreError(500): Couldn't generate a unique string after 5 attempts.
         """
-        attempts = 0
-        while attempts < 5:
-            try:
-                renewal_token = stringutils.random_string(32)
-                await self.store.set_renewal_token_for_user(user_id, renewal_token)
-                return renewal_token
-            except StoreError:
-                attempts += 1
-        raise StoreError(500, "Couldn't generate a unique string as refresh string.")
+        renewal_token = stringutils.random_digit_string(8)
+        await self.store.set_renewal_token_for_user(user_id, renewal_token)
+        return renewal_token
 
-    async def renew_account(self, renewal_token: str) -> bool:
+    async def renew_account(
+        self, renewal_token: str, user_id: Optional[str] = None,
+    ) -> bool:
         """Renews the account attached to a given renewal token by pushing back the
         expiration date by the current validity period in the server's configuration.
 
         Args:
             renewal_token: Token sent with the renewal request.
+            user_id: ID of the user the renewal token should be associated with. Might be
+                None if the token is a legacy one, since these don't need authentication.
         Returns:
             Whether the provided token is valid.
         """
         try:
-            user_id = await self.store.get_user_from_renewal_token(renewal_token)
+            user_id = await self.store.get_user_from_renewal_token(renewal_token, user_id)
         except StoreError:
             return False
 

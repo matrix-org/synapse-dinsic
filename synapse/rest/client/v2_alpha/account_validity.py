@@ -14,6 +14,7 @@
 # limitations under the License.
 
 import logging
+import re
 
 from synapse.api.errors import AuthError, SynapseError
 from synapse.http.server import respond_with_html
@@ -22,6 +23,8 @@ from synapse.http.servlet import RestServlet
 from ._base import client_patterns
 
 logger = logging.getLogger(__name__)
+
+legacy_token_regex = re.compile('[a-zA-Z]{32}')
 
 
 class AccountValidityRenewServlet(RestServlet):
@@ -43,10 +46,15 @@ class AccountValidityRenewServlet(RestServlet):
     async def on_GET(self, request):
         if b"token" not in request.args:
             raise SynapseError(400, "Missing renewal token")
-        renewal_token = request.args[b"token"][0]
+        renewal_token = request.args[b"token"][0].decode("utf8")
+
+        user_id = None
+        if not legacy_token_regex.match(renewal_token):
+            requester = await self.auth.get_user_by_req(request, allow_expired=True)
+            user_id = requester.user.to_string()
 
         token_valid = await self.account_activity_handler.renew_account(
-            renewal_token.decode("utf8")
+            renewal_token, user_id,
         )
 
         if token_valid:
