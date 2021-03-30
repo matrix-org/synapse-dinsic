@@ -132,15 +132,11 @@ class AccountValidityHandler:
             user_display_name = user_id
 
         renewal_token = await self._get_renewal_token(user_id)
-        url = "%s_matrix/client/unstable/account_validity/renew?token=%s" % (
-            self.hs.config.public_baseurl,
-            renewal_token,
-        )
 
         template_vars = {
             "display_name": user_display_name,
             "expiration_ts": expiration_ts,
-            "url": url,
+            "token": renewal_token,
         }
 
         html_text = self._template_html.render(**template_vars)
