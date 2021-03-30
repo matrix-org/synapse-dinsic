@@ -81,6 +81,17 @@ class AccountValidityConfig(Config):
                 "<html><body>Invalid renewal token.</body><html>"
             )
 
+        if "unknown_user_path" in config:
+            file_path = os.path.join(template_dir, config["unknown_user_path"])
+
+            self.unknown_user_html_content = self.read_file(
+                file_path, "account_validity.unknown_user_path"
+            )
+        else:
+            self.unknown_user_html_content = (
+                "<html><body>Unknown user.</body><html>"
+            )
+
 
 class RegistrationConfig(Config):
     section = "registration"

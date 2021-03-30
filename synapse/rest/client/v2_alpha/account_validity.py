@@ -16,7 +16,7 @@
 import logging
 import re
 
-from synapse.api.errors import AuthError, SynapseError
+from synapse.api.errors import AuthError, InvalidClientCredentialsError, SynapseError
 from synapse.http.server import respond_with_html
 from synapse.http.servlet import RestServlet
 
@@ -41,7 +41,8 @@ class AccountValidityRenewServlet(RestServlet):
         self.account_activity_handler = hs.get_account_validity_handler()
         self.auth = hs.get_auth()
         self.success_html = hs.config.account_validity.account_renewed_html_content
-        self.failure_html = hs.config.account_validity.invalid_token_html_content
+        self.invalid_token_html = hs.config.account_validity.invalid_token_html_content
+        self.unknown_user_html = hs.config.account_validity.unknown_user_html_content
 
     async def on_GET(self, request):
         if b"token" not in request.args:
@@ -50,7 +51,12 @@ class AccountValidityRenewServlet(RestServlet):
 
         user_id = None
         if not legacy_token_regex.match(renewal_token):
-            requester = await self.auth.get_user_by_req(request, allow_expired=True)
+            try:
+                requester = await self.auth.get_user_by_req(request, allow_expired=True)
+            except InvalidClientCredentialsError:
+                respond_with_html(request, 401, self.unknown_user_html)
+                return
+
             user_id = requester.user.to_string()
 
         token_valid = await self.account_activity_handler.renew_account(
@@ -62,7 +68,7 @@ class AccountValidityRenewServlet(RestServlet):
             response = self.success_html
         else:
             status_code = 404
-            response = self.failure_html
+            response = self.invalid_token_html
 
         respond_with_html(request, status_code, response)
 
