@@ -27,6 +27,7 @@ from synapse.api.errors import Codes
 from synapse.appservice import ApplicationService
 from synapse.rest.client.v1 import login, logout
 from synapse.rest.client.v2_alpha import account, account_validity, register, sync
+from synapse.util import stringutils
 
 from tests import unittest
 from tests.unittest import override_config
@@ -483,7 +484,12 @@ class AccountValidityRenewalByEmailTestCase(unittest.HomeserverTestCase):
         # retrieve the token from the DB.
         renewal_token = self.get_success(self.store.get_renewal_token_for_user(user_id))
         url = "/_matrix/client/unstable/account_validity/renew?token=%s" % renewal_token
+
+        # Check that the renew request requires authentication.
         request, channel = self.make_request(b"GET", url)
+        self.assertEquals(channel.result["code"], b"401", channel.result)
+
+        request, channel = self.make_request(b"GET", url, access_token=tok)
         self.assertEquals(channel.result["code"], b"200", channel.result)
 
         # Check that we're getting HTML back.
@@ -506,11 +512,29 @@ class AccountValidityRenewalByEmailTestCase(unittest.HomeserverTestCase):
         request, channel = self.make_request(b"GET", "/sync", access_token=tok)
         self.assertEquals(channel.result["code"], b"200", channel.result)
 
+    def test_legacy_token(self):
+        """Tests that an account can still be renewed without authentication by using a
+        legacy token (i.e. a 32 letters long string).
+        """
+        (user_id, tok) = self.create_user()
+
+        # Store a legacy token, which is a random 32 letters long string.
+        legacy_token = stringutils.random_string(32)
+        self.get_success(self.store.set_renewal_token_for_user(user_id, legacy_token))
+
+        # Check that we can renew the account without authenticating the request with an
+        # access token.
+        url = "/_matrix/client/unstable/account_validity/renew?token=%s" % legacy_token
+        request, channel = self.make_request("GET", url)
+        self.assertEquals(channel.result["code"], b"200", channel.result)
+
     def test_renewal_invalid_token(self):
+        (_, tok) = self.create_user()
+
         # Hit the renewal endpoint with an invalid token and check that it behaves as
         # expected, i.e. that it responds with 404 Not Found and the correct HTML.
         url = "/_matrix/client/unstable/account_validity/renew?token=123"
-        request, channel = self.make_request(b"GET", url)
+        request, channel = self.make_request(b"GET", url, access_token=tok)
         self.assertEquals(channel.result["code"], b"404", channel.result)
 
         # Check that we're getting HTML back.
