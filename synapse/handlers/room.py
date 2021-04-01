@@ -358,7 +358,19 @@ class RoomCreationHandler(BaseHandler):
         """
         user_id = requester.user.to_string()
 
-        if not self.spam_checker.user_may_create_room(user_id):
+        if (
+            self._server_notices_mxid is not None
+            and requester.user.to_string() == self._server_notices_mxid
+        ):
+            # allow the server notices mxid to create rooms
+            is_requester_admin = True
+
+        else:
+            is_requester_admin = await self.auth.is_server_admin(requester.user)
+
+        if not is_requester_admin and not self.spam_checker.user_may_create_room(
+            user_id, invite_list=[], third_party_invite_list=[], cloning=True
+        ):
             raise SynapseError(403, "You are not permitted to create rooms")
 
         creation_content = {
@@ -608,8 +620,14 @@ class RoomCreationHandler(BaseHandler):
                 403, "You are not permitted to create rooms", Codes.FORBIDDEN
             )
 
+        invite_list = config.get("invite", [])
+        invite_3pid_list = config.get("invite_3pid", [])
+
         if not is_requester_admin and not self.spam_checker.user_may_create_room(
-            user_id
+            user_id,
+            invite_list=invite_list,
+            third_party_invite_list=invite_3pid_list,
+            cloning=False,
         ):
             raise SynapseError(403, "You are not permitted to create rooms")
 
@@ -793,6 +811,7 @@ class RoomCreationHandler(BaseHandler):
                     "invite",
                     ratelimit=False,
                     content=content,
+                    new_room=True,
                 )
 
         for invite_3pid in invite_3pid_list:
@@ -810,6 +829,7 @@ class RoomCreationHandler(BaseHandler):
                 id_server,
                 requester,
                 txn_id=None,
+                new_room=True,
                 id_access_token=id_access_token,
             )
 
@@ -886,6 +906,7 @@ class RoomCreationHandler(BaseHandler):
             "join",
             ratelimit=False,
             content=creator_join_profile,
+            new_room=True,
         )
 
         # We treat the power levels override specially as this needs to be one

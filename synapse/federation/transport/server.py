@@ -1,7 +1,8 @@
 # -*- coding: utf-8 -*-
 # Copyright 2014-2016 OpenMarket Ltd
 # Copyright 2018 New Vector Ltd
-# Copyright 2019 The Matrix.org Foundation C.I.C.
+# Copyright 2019-2020 The Matrix.org Foundation C.I.C.
+# Copyright 2020 Sorunome
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -14,7 +15,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
 import functools
 import logging
 import re
@@ -31,9 +31,11 @@ from synapse.api.urls import (
 from synapse.http.endpoint import parse_and_validate_server_name
 from synapse.http.server import JsonResource
 from synapse.http.servlet import (
+    assert_params_in_dict,
     parse_boolean_from_args,
     parse_integer_from_args,
     parse_json_object_from_request,
+    parse_list_from_args,
     parse_string_from_args,
 )
 from synapse.logging.context import run_in_background
@@ -542,6 +544,34 @@ class FederationV2SendLeaveServlet(BaseFederationServlet):
         return 200, content
 
 
+class FederationMakeKnockServlet(BaseFederationServlet):
+    PATH = "/make_knock/(?P<room_id>[^/]*)/(?P<user_id>[^/]*)"
+
+    PREFIX = FEDERATION_UNSTABLE_PREFIX + "/xyz.amorgan.knock"
+
+    async def on_GET(self, origin, content, query, room_id, user_id):
+        try:
+            # Retrieve the room versions the remote homeserver claims to support
+            supported_versions = parse_list_from_args(query, "ver", encoding="utf-8")
+        except KeyError:
+            raise SynapseError(400, "Missing required query parameter 'ver'")
+
+        content = await self.handler.on_make_knock_request(
+            origin, room_id, user_id, supported_versions=supported_versions
+        )
+        return 200, content
+
+
+class FederationV2SendKnockServlet(BaseFederationServlet):
+    PATH = "/send_knock/(?P<room_id>[^/]*)/(?P<event_id>[^/]*)"
+
+    PREFIX = FEDERATION_UNSTABLE_PREFIX + "/xyz.amorgan.knock"
+
+    async def on_PUT(self, origin, content, query, room_id, event_id):
+        content = await self.handler.on_send_knock_request(origin, content, room_id)
+        return 200, content
+
+
 class FederationEventAuthServlet(BaseFederationServlet):
     PATH = "/event_auth/(?P<room_id>[^/]*)/(?P<event_id>[^/]*)"
 
@@ -839,6 +869,57 @@ class PublicRoomList(BaseFederationServlet):
             from_federation=True,
         )
 
+        return 200, data
+
+
+class FederationUserInfoServlet(BaseFederationServlet):
+    """
+    Return information about a set of users.
+
+    This API returns expiration and deactivation information about a set of
+    users. Requested users not local to this homeserver will be ignored.
+
+    Example request:
+        POST /users/info
+
+        {
+            "user_ids": [
+                "@alice:example.com",
+                "@bob:example.com"
+            ]
+        }
+
+    Example response
+        {
+            "@alice:example.com": {
+                "expired": false,
+                "deactivated": true
+            }
+        }
+    """
+
+    PATH = "/users/info"
+    PREFIX = FEDERATION_UNSTABLE_PREFIX
+
+    def __init__(self, handler, authenticator, ratelimiter, server_name):
+        super(FederationUserInfoServlet, self).__init__(
+            handler, authenticator, ratelimiter, server_name
+        )
+        self.handler = handler
+
+    async def on_POST(self, origin, content, query):
+        assert_params_in_dict(content, required=["user_ids"])
+
+        user_ids = content.get("user_ids", [])
+
+        if not isinstance(user_ids, list):
+            raise SynapseError(
+                400,
+                "'user_ids' must be a list of user ID strings",
+                errcode=Codes.INVALID_PARAM,
+            )
+
+        data = await self.handler.store.get_info_for_users(user_ids)
         return 200, data
 
 
@@ -1387,11 +1468,13 @@ FEDERATION_SERVLET_CLASSES = (
     FederationQueryServlet,
     FederationMakeJoinServlet,
     FederationMakeLeaveServlet,
+    FederationMakeKnockServlet,
     FederationEventServlet,
     FederationV1SendJoinServlet,
     FederationV2SendJoinServlet,
     FederationV1SendLeaveServlet,
     FederationV2SendLeaveServlet,
+    FederationV2SendKnockServlet,
     FederationV1InviteServlet,
     FederationV2InviteServlet,
     FederationGetMissingEventsServlet,
@@ -1403,6 +1486,7 @@ FEDERATION_SERVLET_CLASSES = (
     On3pidBindServlet,
     FederationVersionServlet,
     RoomComplexityServlet,
+    FederationUserInfoServlet,
 )  # type: Tuple[Type[BaseFederationServlet], ...]
 
 OPENID_SERVLET_CLASSES = (

@@ -7,9 +7,9 @@ echo -e "+++ \033[32mChecking newsfragment\033[m"
 
 set -e
 
-# make sure that origin/develop is up to date
-git remote set-branches --add origin develop
-git fetch -q origin develop
+# make sure that origin/dinsic is up to date
+git remote set-branches --add origin dinsic
+git fetch -q origin dinsic
 
 pr="$BUILDKITE_PULL_REQUEST"
 

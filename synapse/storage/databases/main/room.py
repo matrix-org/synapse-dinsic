@@ -13,7 +13,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
 import collections
 import logging
 import re
@@ -21,7 +20,7 @@ from abc import abstractmethod
 from enum import Enum
 from typing import Any, Dict, List, Optional, Tuple
 
-from synapse.api.constants import EventTypes
+from synapse.api.constants import EventTypes, JoinRules
 from synapse.api.errors import StoreError
 from synapse.api.room_versions import RoomVersion, RoomVersions
 from synapse.storage._base import SQLBaseStore, db_to_json
@@ -178,11 +177,13 @@ class RoomWorkerStore(SQLBaseStore):
                 INNER JOIN room_stats_current USING (room_id)
                 WHERE
                     (
-                        join_rules = 'public' OR history_visibility = 'world_readable'
+                        join_rules = 'public' OR join_rules = '%(knock_join_rule)s'
+                        OR history_visibility = 'world_readable'
                     )
                     AND joined_members > 0
             """ % {
-                "published_sql": published_sql
+                "published_sql": published_sql,
+                "knock_join_rule": JoinRules.KNOCK,
             }
 
             txn.execute(sql, query_args)
@@ -305,7 +306,7 @@ class RoomWorkerStore(SQLBaseStore):
         sql = """
             SELECT
                 room_id, name, topic, canonical_alias, joined_members,
-                avatar, history_visibility, joined_members, guest_access
+                avatar, history_visibility, guest_access, join_rules
             FROM (
                 %(published_sql)s
             ) published
@@ -313,7 +314,8 @@ class RoomWorkerStore(SQLBaseStore):
             INNER JOIN room_stats_current USING (room_id)
             WHERE
                 (
-                    join_rules = 'public' OR history_visibility = 'world_readable'
+                    join_rules = 'public' OR join_rules = '%(knock_join_rule)s'
+                    OR history_visibility = 'world_readable'
                 )
                 AND joined_members > 0
                 %(where_clause)s
@@ -322,6 +324,7 @@ class RoomWorkerStore(SQLBaseStore):
             "published_sql": published_sql,
             "where_clause": where_clause,
             "dir": "DESC" if forwards else "ASC",
+            "knock_join_rule": JoinRules.KNOCK,
         }
 
         if limit is not None:
@@ -355,6 +358,23 @@ class RoomWorkerStore(SQLBaseStore):
             allow_none=True,
             desc="is_room_blocked",
         )
+
+    async def is_room_published(self, room_id: str) -> bool:
+        """Check whether a room has been published in the local public room
+        directory.
+
+        Args:
+            room_id
+        Returns:
+            Whether the room is currently published in the room directory
+        """
+        # Get room information
+        room_info = await self.get_room(room_id)
+        if not room_info:
+            return False
+
+        # Check the is_public value
+        return room_info.get("is_public", False)
 
     async def get_rooms_paginate(
         self,
@@ -564,6 +584,11 @@ class RoomWorkerStore(SQLBaseStore):
         Returns:
             dict[int, int]: "min_lifetime" and "max_lifetime" for this room.
         """
+        # If the room retention feature is disabled, return a policy with no minimum nor
+        # maximum, in order not to filter out events we should filter out when sending to
+        # the client.
+        if not self.config.retention_enabled:
+            return {"min_lifetime": None, "max_lifetime": None}
 
         def get_retention_policy_for_room_txn(txn):
             txn.execute(

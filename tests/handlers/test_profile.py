@@ -44,7 +44,7 @@ class ProfileTestCase(unittest.TestCase):
 
         hs = yield setup_test_homeserver(
             self.addCleanup,
-            http_client=None,
+            federation_http_client=None,
             resource_for_federation=Mock(),
             federation_client=self.mock_federation,
             federation_server=Mock(),
@@ -65,7 +65,7 @@ class ProfileTestCase(unittest.TestCase):
     @defer.inlineCallbacks
     def test_get_my_name(self):
         yield defer.ensureDeferred(
-            self.store.set_profile_displayname(self.frank.localpart, "Frank")
+            self.store.set_profile_displayname(self.frank.localpart, "Frank", 1)
         )
 
         displayname = yield defer.ensureDeferred(
@@ -113,7 +113,7 @@ class ProfileTestCase(unittest.TestCase):
 
         # Setting displayname for the first time is allowed
         yield defer.ensureDeferred(
-            self.store.set_profile_displayname(self.frank.localpart, "Frank")
+            self.store.set_profile_displayname(self.frank.localpart, "Frank", 1)
         )
 
         self.assertEquals(
@@ -166,7 +166,7 @@ class ProfileTestCase(unittest.TestCase):
     def test_incoming_fed_query(self):
         yield defer.ensureDeferred(self.store.create_profile("caroline"))
         yield defer.ensureDeferred(
-            self.store.set_profile_displayname("caroline", "Caroline")
+            self.store.set_profile_displayname("caroline", "Caroline", 1)
         )
 
         response = yield defer.ensureDeferred(
@@ -181,7 +181,7 @@ class ProfileTestCase(unittest.TestCase):
     def test_get_my_avatar(self):
         yield defer.ensureDeferred(
             self.store.set_profile_avatar_url(
-                self.frank.localpart, "http://my.server/me.png"
+                self.frank.localpart, "http://my.server/me.png", 1
             )
         )
         avatar_url = yield defer.ensureDeferred(self.handler.get_avatar_url(self.frank))
@@ -232,7 +232,7 @@ class ProfileTestCase(unittest.TestCase):
         # Setting displayname for the first time is allowed
         yield defer.ensureDeferred(
             self.store.set_profile_avatar_url(
-                self.frank.localpart, "http://my.server/me.png"
+                self.frank.localpart, "http://my.server/me.png", 1
             )
         )
 

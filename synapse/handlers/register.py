@@ -48,6 +48,7 @@ class RegistrationHandler(BaseHandler):
         self._auth_handler = hs.get_auth_handler()
         self.profile_handler = hs.get_profile_handler()
         self.user_directory_handler = hs.get_user_directory_handler()
+        self.http_client = hs.get_simple_http_client()
         self.identity_handler = self.hs.get_identity_handler()
         self.ratelimiter = hs.get_registration_ratelimiter()
         self.macaroon_gen = hs.get_macaroon_generator()
@@ -55,6 +56,8 @@ class RegistrationHandler(BaseHandler):
         self._server_name = hs.hostname
 
         self.spam_checker = hs.get_spam_checker()
+
+        self._show_in_user_directory = self.hs.config.show_users_in_user_directory
 
         if hs.config.worker_app:
             self._register_client = ReplicationRegisterServlet.make_client(hs)
@@ -76,6 +79,16 @@ class RegistrationHandler(BaseHandler):
         guest_access_token: Optional[str] = None,
         assigned_user_id: Optional[str] = None,
     ):
+        """
+
+        Args:
+            localpart (str|None): The user's localpart
+            guest_access_token (str|None): A guest's access token
+            assigned_user_id (str|None): An existing User ID for this user if pre-calculated
+
+        Returns:
+            Deferred
+        """
         if types.contains_invalid_mxid_characters(localpart):
             raise SynapseError(
                 400,
@@ -118,6 +131,8 @@ class RegistrationHandler(BaseHandler):
                 raise SynapseError(
                     400, "User ID already taken.", errcode=Codes.USER_IN_USE
                 )
+
+            # Retrieve guest user information from provided access token
             user_data = await self.auth.get_user_by_access_token(guest_access_token)
             if (
                 not user_data.is_guest
@@ -236,6 +251,12 @@ class RegistrationHandler(BaseHandler):
                 shadow_banned=shadow_banned,
             )
 
+            if default_display_name:
+                requester = create_requester(user)
+                await self.profile_handler.set_displayname(
+                    user, requester, default_display_name, by_admin=True
+                )
+
             if self.hs.config.user_directory_search_all_users:
                 profile = await self.store.get_profileinfo(localpart)
                 await self.user_directory_handler.handle_local_profile_change(
@@ -269,6 +290,11 @@ class RegistrationHandler(BaseHandler):
                         shadow_banned=shadow_banned,
                     )
 
+                    requester = create_requester(user)
+                    await self.profile_handler.set_displayname(
+                        user, requester, default_display_name, by_admin=True
+                    )
+
                     # Successfully registered
                     break
                 except SynapseError:
@@ -300,7 +326,15 @@ class RegistrationHandler(BaseHandler):
             }
 
             # Bind email to new account
-            await self._register_email_threepid(user_id, threepid_dict, None)
+            await self.register_email_threepid(user_id, threepid_dict, None)
+
+        # Prevent the new user from showing up in the user directory if the server
+        # mandates it.
+        if not self._show_in_user_directory:
+            await self.store.add_account_data_for_user(
+                user_id, "im.vector.hide_profile", {"hide_profile": True}
+            )
+            await self.profile_handler.set_active([user], False, True)
 
         return user_id
 
@@ -500,7 +534,10 @@ class RegistrationHandler(BaseHandler):
         """
         await self._auto_join_rooms(user_id)
 
-    async def appservice_register(self, user_localpart: str, as_token: str) -> str:
+    async def appservice_register(
+        self, user_localpart: str, as_token: str, password_hash: str, display_name: str
+    ):
+        # FIXME: this should be factored out and merged with normal register()
         user = UserID(user_localpart, self.hs.hostname)
         user_id = user.to_string()
         service = self.store.get_app_service_by_token(as_token)
@@ -517,12 +554,26 @@ class RegistrationHandler(BaseHandler):
 
         self.check_user_id_not_appservice_exclusive(user_id, allowed_appservice=service)
 
+        display_name = display_name or user.localpart
+
         await self.register_with_store(
             user_id=user_id,
-            password_hash="",
+            password_hash=password_hash,
             appservice_id=service_id,
-            create_profile_with_displayname=user.localpart,
+            create_profile_with_displayname=display_name,
         )
+
+        requester = create_requester(user)
+        await self.profile_handler.set_displayname(
+            user, requester, display_name, by_admin=True
+        )
+
+        if self.hs.config.user_directory_search_all_users:
+            profile = await self.store.get_profileinfo(user_localpart)
+            await self.user_directory_handler.handle_local_profile_change(
+                user_id, profile
+            )
+
         return user_id
 
     def check_user_id_not_appservice_exclusive(
@@ -550,6 +601,37 @@ class RegistrationHandler(BaseHandler):
                     "This user ID is reserved by an application service.",
                     errcode=Codes.EXCLUSIVE,
                 )
+
+    async def shadow_register(self, localpart, display_name, auth_result, params):
+        """Invokes the current registration on another server, using
+        shared secret registration, passing in any auth_results from
+        other registration UI auth flows (e.g. validated 3pids)
+        Useful for setting up shadow/backup accounts on a parallel deployment.
+        """
+
+        # TODO: retries
+        shadow_hs_url = self.hs.config.shadow_server.get("hs_url")
+        as_token = self.hs.config.shadow_server.get("as_token")
+
+        await self.http_client.post_json_get_json(
+            "%s/_matrix/client/r0/register?access_token=%s" % (shadow_hs_url, as_token),
+            {
+                # XXX: auth_result is an unspecified extension for shadow registration
+                "auth_result": auth_result,
+                # XXX: another unspecified extension for shadow registration to ensure
+                # that the displayname is correctly set by the masters erver
+                "display_name": display_name,
+                "username": localpart,
+                "password": params.get("password"),
+                "bind_msisdn": params.get("bind_msisdn"),
+                "device_id": params.get("device_id"),
+                "initial_device_display_name": params.get(
+                    "initial_device_display_name"
+                ),
+                "inhibit_login": False,
+                "access_token": as_token,
+            },
+        )
 
     def check_registration_ratelimit(self, address: Optional[str]) -> None:
         """A simple helper method to check whether the registration rate limit has been hit
@@ -696,6 +778,7 @@ class RegistrationHandler(BaseHandler):
 
         if auth_result and LoginType.EMAIL_IDENTITY in auth_result:
             threepid = auth_result[LoginType.EMAIL_IDENTITY]
+
             # Necessary due to auth checks prior to the threepid being
             # written to the db
             if is_threepid_reserved(
@@ -703,7 +786,32 @@ class RegistrationHandler(BaseHandler):
             ):
                 await self.store.upsert_monthly_active_user(user_id)
 
-            await self._register_email_threepid(user_id, threepid, access_token)
+            await self.register_email_threepid(user_id, threepid, access_token)
+
+            if self.hs.config.bind_new_user_emails_to_sydent:
+                # Attempt to call Sydent's internal bind API on the given identity server
+                # to bind this threepid
+                id_server_url = self.hs.config.bind_new_user_emails_to_sydent
+
+                logger.debug(
+                    "Attempting the bind email of %s to identity server: %s using "
+                    "internal Sydent bind API.",
+                    user_id,
+                    self.hs.config.bind_new_user_emails_to_sydent,
+                )
+
+                try:
+                    await self.identity_handler.bind_email_using_internal_sydent_api(
+                        id_server_url, threepid["address"], user_id
+                    )
+                except Exception as e:
+                    logger.warning(
+                        "Failed to bind email of '%s' to Sydent instance '%s' ",
+                        "using Sydent internal bind API: %s",
+                        user_id,
+                        id_server_url,
+                        e,
+                    )
 
         if auth_result and LoginType.MSISDN in auth_result:
             threepid = auth_result[LoginType.MSISDN]
@@ -723,7 +831,7 @@ class RegistrationHandler(BaseHandler):
         await self.store.user_set_consent_version(user_id, consent_version)
         await self.post_consent_actions(user_id)
 
-    async def _register_email_threepid(
+    async def register_email_threepid(
         self, user_id: str, threepid: dict, token: Optional[str]
     ) -> None:
         """Add an email address as a 3pid identifier

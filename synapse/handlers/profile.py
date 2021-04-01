@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 # Copyright 2014-2016 OpenMarket Ltd
+# Copyright 2018 New Vector Ltd
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -14,7 +15,11 @@
 # limitations under the License.
 import logging
 import random
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, List, Optional
+
+from signedjson.sign import sign_json
+
+from twisted.internet import reactor
 
 from synapse.api.errors import (
     AuthError,
@@ -24,7 +29,11 @@ from synapse.api.errors import (
     StoreError,
     SynapseError,
 )
-from synapse.metrics.background_process_metrics import wrap_as_background_process
+from synapse.logging.context import run_in_background
+from synapse.metrics.background_process_metrics import (
+    run_as_background_process,
+    wrap_as_background_process,
+)
 from synapse.types import (
     JsonDict,
     Requester,
@@ -54,6 +63,8 @@ class ProfileHandler(BaseHandler):
     PROFILE_UPDATE_MS = 60 * 1000
     PROFILE_UPDATE_EVERY_MS = 24 * 60 * 60 * 1000
 
+    PROFILE_REPLICATE_INTERVAL = 2 * 60 * 1000
+
     def __init__(self, hs: "HomeServer"):
         super().__init__(hs)
 
@@ -64,10 +75,97 @@ class ProfileHandler(BaseHandler):
 
         self.user_directory_handler = hs.get_user_directory_handler()
 
+        self.http_client = hs.get_simple_http_client()
+
+        self.max_avatar_size = hs.config.max_avatar_size
+        self.allowed_avatar_mimetypes = hs.config.allowed_avatar_mimetypes
+        self.replicate_user_profiles_to = hs.config.replicate_user_profiles_to
+
         if hs.config.run_background_tasks:
             self.clock.looping_call(
                 self._update_remote_profile_cache, self.PROFILE_UPDATE_MS
             )
+
+            if len(self.hs.config.replicate_user_profiles_to) > 0:
+                reactor.callWhenRunning(self._do_assign_profile_replication_batches)
+                reactor.callWhenRunning(self._start_replicate_profiles)
+                # Add a looping call to replicate_profiles: this handles retries
+                # if the replication is unsuccessful when the user updated their
+                # profile.
+                self.clock.looping_call(
+                    self._start_replicate_profiles, self.PROFILE_REPLICATE_INTERVAL
+                )
+
+    def _do_assign_profile_replication_batches(self):
+        return run_as_background_process(
+            "_assign_profile_replication_batches",
+            self._assign_profile_replication_batches,
+        )
+
+    def _start_replicate_profiles(self):
+        return run_as_background_process(
+            "_replicate_profiles", self._replicate_profiles
+        )
+
+    async def _assign_profile_replication_batches(self):
+        """If no profile replication has been done yet, allocate replication batch
+        numbers to each profile to start the replication process.
+        """
+        logger.info("Assigning profile batch numbers...")
+        total = 0
+        while True:
+            assigned = await self.store.assign_profile_batch()
+            total += assigned
+            if assigned == 0:
+                break
+        logger.info("Assigned %d profile batch numbers", total)
+
+    async def _replicate_profiles(self):
+        """If any profile data has been updated and not pushed to the replication targets,
+        replicate it.
+        """
+        host_batches = await self.store.get_replication_hosts()
+        latest_batch = await self.store.get_latest_profile_replication_batch_number()
+        if latest_batch is None:
+            latest_batch = -1
+        for repl_host in self.hs.config.replicate_user_profiles_to:
+            if repl_host not in host_batches:
+                host_batches[repl_host] = -1
+            try:
+                for i in range(host_batches[repl_host] + 1, latest_batch + 1):
+                    await self._replicate_host_profile_batch(repl_host, i)
+            except Exception:
+                logger.exception(
+                    "Exception while replicating to %s: aborting for now", repl_host
+                )
+
+    async def _replicate_host_profile_batch(self, host, batchnum):
+        logger.info("Replicating profile batch %d to %s", batchnum, host)
+        batch_rows = await self.store.get_profile_batch(batchnum)
+        batch = {
+            UserID(r["user_id"], self.hs.hostname).to_string(): (
+                {"display_name": r["displayname"], "avatar_url": r["avatar_url"]}
+                if r["active"]
+                else None
+            )
+            for r in batch_rows
+        }
+
+        url = "https://%s/_matrix/identity/api/v1/replicate_profiles" % (host,)
+        body = {"batchnum": batchnum, "batch": batch, "origin_server": self.hs.hostname}
+        signed_body = sign_json(body, self.hs.hostname, self.hs.config.signing_key[0])
+        try:
+            await self.http_client.post_json_get_json(url, signed_body)
+            await self.store.update_replication_batch_for_host(host, batchnum)
+            logger.info(
+                "Successfully replicated profile batch %d to %s", batchnum, host
+            )
+        except Exception:
+            # This will get retried when the looping call next comes around
+            logger.exception(
+                "Failed to replicate profile batch %d to %s", batchnum, host
+            )
+            raise
 
     async def get_profile(self, user_id: str) -> JsonDict:
         target_user = UserID.from_string(user_id)
@@ -210,8 +308,16 @@ class ProfileHandler(BaseHandler):
                 target_user, authenticated_entity=requester.authenticated_entity,
             )
 
+        if len(self.hs.config.replicate_user_profiles_to) > 0:
+            cur_batchnum = (
+                await self.store.get_latest_profile_replication_batch_number()
+            )
+            new_batchnum = 0 if cur_batchnum is None else cur_batchnum + 1
+        else:
+            new_batchnum = None
+
         await self.store.set_profile_displayname(
-            target_user.localpart, displayname_to_set
+            target_user.localpart, displayname_to_set, new_batchnum
         )
 
         if self.hs.config.user_directory_search_all_users:
@@ -221,6 +327,46 @@ class ProfileHandler(BaseHandler):
             )
 
         await self._update_join_states(requester, target_user)
+
+        # start a profile replication push
+        run_in_background(self._replicate_profiles)
+
+    async def set_active(
+        self, users: List[UserID], active: bool, hide: bool,
+    ):
+        """
+        Sets the 'active' flag on a set of user profiles. If set to false, the
+        accounts are considered deactivated or hidden.
+
+        If 'hide' is true, then we interpret active=False as a request to try to
+        hide the users rather than deactivating them. This means withholding the
+        profiles from replication (and mark it as inactive) rather than clearing
+        the profile from the HS DB.
+
+        Note that unlike set_displayname and set_avatar_url, this does *not*
+        perform authorization checks! This is because the only place it's used
+        currently is in account deactivation where we've already done these
+        checks anyway.
+
+        Args:
+            users: The users to modify
+            active: Whether to set the user to active or inactive
+            hide: Whether to hide the user (withold from replication). If
+                False and active is False, user will have their profile
+                erased
+        """
+        if len(self.replicate_user_profiles_to) > 0:
+            cur_batchnum = (
+                await self.store.get_latest_profile_replication_batch_number()
+            )
+            new_batchnum = 0 if cur_batchnum is None else cur_batchnum + 1
+        else:
+            new_batchnum = None
+
+        await self.store.set_profiles_active(users, active, hide, new_batchnum)
+
+        # start a profile replication push
+        run_in_background(self._replicate_profiles)
 
     async def get_avatar_url(self, target_user: UserID) -> Optional[str]:
         if self.hs.is_mine(target_user):
@@ -286,13 +432,53 @@ class ProfileHandler(BaseHandler):
                 400, "Avatar URL is too long (max %i)" % (MAX_AVATAR_URL_LEN,)
             )
 
+        # Enforce a max avatar size if one is defined
+        if self.max_avatar_size or self.allowed_avatar_mimetypes:
+            media_id = self._validate_and_parse_media_id_from_avatar_url(new_avatar_url)
+
+            # Check that this media exists locally
+            media_info = await self.store.get_local_media(media_id)
+            if not media_info:
+                raise SynapseError(
+                    400, "Unknown media id supplied", errcode=Codes.NOT_FOUND
+                )
+
+            # Ensure avatar does not exceed max allowed avatar size
+            media_size = media_info["media_length"]
+            if self.max_avatar_size and media_size > self.max_avatar_size:
+                raise SynapseError(
+                    400,
+                    "Avatars must be less than %s bytes in size"
+                    % (self.max_avatar_size,),
+                    errcode=Codes.TOO_LARGE,
+                )
+
+            # Ensure the avatar's file type is allowed
+            if (
+                self.allowed_avatar_mimetypes
+                and media_info["media_type"] not in self.allowed_avatar_mimetypes
+            ):
+                raise SynapseError(
+                    400, "Avatar file type '%s' not allowed" % media_info["media_type"]
+                )
+
         # Same like set_displayname
         if by_admin:
             requester = create_requester(
                 target_user, authenticated_entity=requester.authenticated_entity
             )
 
-        await self.store.set_profile_avatar_url(target_user.localpart, new_avatar_url)
+        if len(self.hs.config.replicate_user_profiles_to) > 0:
+            cur_batchnum = (
+                await self.store.get_latest_profile_replication_batch_number()
+            )
+            new_batchnum = 0 if cur_batchnum is None else cur_batchnum + 1
+        else:
+            new_batchnum = None
+
+        await self.store.set_profile_avatar_url(
+            target_user.localpart, new_avatar_url, new_batchnum
+        )
 
         if self.hs.config.user_directory_search_all_users:
             profile = await self.store.get_profileinfo(target_user.localpart)
@@ -301,6 +487,23 @@ class ProfileHandler(BaseHandler):
             )
 
         await self._update_join_states(requester, target_user)
+
+        # start a profile replication push
+        run_in_background(self._replicate_profiles)
+
+    def _validate_and_parse_media_id_from_avatar_url(self, mxc):
+        """Validate and parse a provided avatar url and return the local media id
+
+        Args:
+            mxc (str): A mxc URL
+
+        Returns:
+            str: The ID of the media
+        """
+        avatar_pieces = mxc.split("/")
+        if len(avatar_pieces) != 4 or avatar_pieces[0] != "mxc:":
+            raise SynapseError(400, "Invalid avatar URL '%s' supplied" % mxc)
+        return avatar_pieces[-1]
 
     async def on_profile_query(self, args: JsonDict) -> JsonDict:
         user = UserID.from_string(args["user_id"])

@@ -18,8 +18,14 @@
 import datetime
 import json
 import os
+import os.path
+import tempfile
+
+from mock import Mock
 
 import pkg_resources
+
+from twisted.internet import defer
 
 import synapse.rest.admin
 from synapse.api.constants import LoginType
@@ -85,13 +91,6 @@ class RegisterRestServletTestCase(unittest.HomeserverTestCase):
 
         self.assertEquals(channel.result["code"], b"400", channel.result)
         self.assertEquals(channel.json_body["error"], "Invalid password")
-
-    def test_POST_bad_username(self):
-        request_data = json.dumps({"username": 777, "password": "monkey"})
-        request, channel = self.make_request(b"POST", self.url, request_data)
-
-        self.assertEquals(channel.result["code"], b"400", channel.result)
-        self.assertEquals(channel.json_body["error"], "Invalid username")
 
     def test_POST_user_valid(self):
         user_id = "@kermit:test"
@@ -289,6 +288,96 @@ class RegisterRestServletTestCase(unittest.HomeserverTestCase):
         self.assertIsNotNone(channel.json_body.get("sid"))
 
 
+class RegisterHideProfileTestCase(unittest.HomeserverTestCase):
+
+    servlets = [synapse.rest.admin.register_servlets_for_client_rest_resource]
+
+    def make_homeserver(self, reactor, clock):
+
+        self.url = b"/_matrix/client/r0/register"
+
+        config = self.default_config()
+        config["enable_registration"] = True
+        config["show_users_in_user_directory"] = False
+        config["replicate_user_profiles_to"] = ["fakeserver"]
+
+        mock_http_client = Mock(spec=["get_json", "post_json_get_json"])
+        mock_http_client.post_json_get_json.return_value = defer.succeed((200, "{}"))
+
+        self.hs = self.setup_test_homeserver(
+            config=config, simple_http_client=mock_http_client
+        )
+
+        return self.hs
+
+    def test_profile_hidden(self):
+        user_id = self.register_user("kermit", "monkey")
+
+        post_json = self.hs.get_simple_http_client().post_json_get_json
+
+        # We expect post_json_get_json to have been called twice: once with the original
+        # profile and once with the None profile resulting from the request to hide it
+        # from the user directory.
+        self.assertEqual(post_json.call_count, 2, post_json.call_args_list)
+
+        # Get the args (and not kwargs) passed to post_json.
+        args = post_json.call_args[0]
+        # Make sure the last call was attempting to replicate profiles.
+        split_uri = args[0].split("/")
+        self.assertEqual(split_uri[len(split_uri) - 1], "replicate_profiles", args[0])
+        # Make sure the last profile update was overriding the user's profile to None.
+        self.assertEqual(args[1]["batch"][user_id], None, args[1])
+
+
+class AccountValidityTemplateDirectoryTestCase(unittest.HomeserverTestCase):
+    def make_homeserver(self, reactor, clock):
+        config = self.default_config()
+
+        # Create a custom template directory and a template inside to read
+        temp_dir = tempfile.mkdtemp()
+        self.account_renewed_fd, account_renewed_path = tempfile.mkstemp(dir=temp_dir)
+        self.invalid_token_fd, invalid_token_path = tempfile.mkstemp(dir=temp_dir)
+
+        self.account_renewed_template_contents = "Yay, your account has been renewed"
+        self.invalid_token_template_contents = "Boo, you used an invalid token. Booo"
+
+        # Add some content to the custom templates
+        with open(account_renewed_path, "w") as f:
+            f.write(self.account_renewed_template_contents)
+
+        with open(invalid_token_path, "w") as f:
+            f.write(self.invalid_token_template_contents)
+
+        # Write the config, specifying the custom template directory and name of the custom
+        # template files. They must be different than those that exist in the default
+        # template directory in order to properly test everything.
+        config["enable_registration"] = True
+        config["account_validity"] = {
+            "enabled": True,
+            "period": 604800000,  # Time in ms for 1 week
+            "template_dir": temp_dir,
+            "account_renewed_html_path": os.path.basename(account_renewed_path),
+            "invalid_token_html_path": os.path.basename(invalid_token_path),
+        }
+        self.hs = self.setup_test_homeserver(config=config)
+
+        return self.hs
+
+    def test_template_contents(self):
+        """Tests that the contents of the custom templates as specified in the config are
+        correct.
+        """
+        self.assertEquals(
+            self.hs.config.account_validity.account_validity_account_renewed_template.render(),
+            self.account_renewed_template_contents,
+        )
+
+        self.assertEquals(
+            self.hs.config.account_validity.account_validity_invalid_token_template.render(),
+            self.invalid_token_template_contents,
+        )
+
+
 class AccountValidityTestCase(unittest.HomeserverTestCase):
 
     servlets = [
@@ -298,6 +387,7 @@ class AccountValidityTestCase(unittest.HomeserverTestCase):
         sync.register_servlets,
         logout.register_servlets,
         account_validity.register_servlets,
+        account.register_servlets,
     ]
 
     def make_homeserver(self, reactor, clock):
@@ -414,6 +504,152 @@ class AccountValidityTestCase(unittest.HomeserverTestCase):
         self.assertEquals(channel.result["code"], b"200", channel.result)
 
 
+class AccountValidityUserDirectoryTestCase(unittest.HomeserverTestCase):
+
+    servlets = [
+        synapse.rest.client.v1.profile.register_servlets,
+        synapse.rest.client.v1.room.register_servlets,
+        synapse.rest.client.v2_alpha.user_directory.register_servlets,
+        login.register_servlets,
+        register.register_servlets,
+        synapse.rest.admin.register_servlets_for_client_rest_resource,
+        account_validity.register_servlets,
+    ]
+
+    def make_homeserver(self, reactor, clock):
+        config = self.default_config()
+
+        # Set accounts to expire after a week
+        config["enable_registration"] = True
+        config["account_validity"] = {
+            "enabled": True,
+            "period": 604800000,  # Time in ms for 1 week
+        }
+        config["replicate_user_profiles_to"] = "test.is"
+
+        # Mock homeserver requests to an identity server
+        mock_http_client = Mock(spec=["post_json_get_json"])
+        mock_http_client.post_json_get_json.return_value = defer.succeed((200, "{}"))
+
+        self.hs = self.setup_test_homeserver(
+            config=config, simple_http_client=mock_http_client
+        )
+
+        return self.hs
+
+    def test_expired_user_in_directory(self):
+        """Test that an expired user is hidden in the user directory"""
+        # Create an admin user to search the user directory
+        admin_id = self.register_user("admin", "adminpassword", admin=True)
+        admin_tok = self.login("admin", "adminpassword")
+
+        # Ensure the admin never expires
+        url = "/_synapse/admin/v1/account_validity/validity"
+        params = {
+            "user_id": admin_id,
+            "expiration_ts": 999999999999,
+            "enable_renewal_emails": False,
+        }
+        request_data = json.dumps(params)
+        request, channel = self.make_request(
+            b"POST", url, request_data, access_token=admin_tok
+        )
+        self.assertEquals(channel.result["code"], b"200", channel.result)
+
+        # Mock the homeserver's HTTP client
+        post_json = self.hs.get_simple_http_client().post_json_get_json
+
+        # Create a user
+        username = "kermit"
+        user_id = self.register_user(username, "monkey")
+        self.login(username, "monkey")
+        self.get_success(
+            self.hs.get_datastore().set_profile_displayname(username, "mr.kermit", 1)
+        )
+
+        # Check that a full profile for this user is replicated
+        self.assertIsNotNone(post_json.call_args, post_json.call_args)
+        payload = post_json.call_args[0][1]
+        batch = payload.get("batch")
+
+        self.assertIsNotNone(batch, batch)
+        self.assertEquals(len(batch), 1, batch)
+
+        replicated_user_id = list(batch.keys())[0]
+        self.assertEquals(replicated_user_id, user_id, replicated_user_id)
+
+        # There was replicated information about our user
+        # Check that it's not None
+        replicated_content = batch[user_id]
+        self.assertIsNotNone(replicated_content)
+
+        # Expire the user
+        url = "/_synapse/admin/v1/account_validity/validity"
+        params = {
+            "user_id": user_id,
+            "expiration_ts": 0,
+            "enable_renewal_emails": False,
+        }
+        request_data = json.dumps(params)
+        request, channel = self.make_request(
+            b"POST", url, request_data, access_token=admin_tok
+        )
+        self.assertEquals(channel.result["code"], b"200", channel.result)
+
+        # Wait for the background job to run which hides expired users in the directory
+        self.reactor.advance(60 * 60 * 1000)
+
+        # Check if the homeserver has replicated the user's profile to the identity server
+        self.assertIsNotNone(post_json.call_args, post_json.call_args)
+        payload = post_json.call_args[0][1]
+        batch = payload.get("batch")
+
+        self.assertIsNotNone(batch, batch)
+        self.assertEquals(len(batch), 1, batch)
+
+        replicated_user_id = list(batch.keys())[0]
+        self.assertEquals(replicated_user_id, user_id, replicated_user_id)
+
+        # There was replicated information about our user
+        # Check that it's None, signifying that the user should be removed from the user
+        # directory because they were expired
+        replicated_content = batch[user_id]
+        self.assertIsNone(replicated_content)
+
+        # Now renew the user, and check they get replicated again to the identity server
+        url = "/_synapse/admin/v1/account_validity/validity"
+        params = {
+            "user_id": user_id,
+            "expiration_ts": 99999999999,
+            "enable_renewal_emails": False,
+        }
+        request_data = json.dumps(params)
+        request, channel = self.make_request(
+            b"POST", url, request_data, access_token=admin_tok
+        )
+        self.assertEquals(channel.result["code"], b"200", channel.result)
+
+        self.pump(10)
+        self.reactor.advance(10)
+        self.pump()
+
+        # Check if the homeserver has replicated the user's profile to the identity server
+        post_json = self.hs.get_simple_http_client().post_json_get_json
+        self.assertNotEquals(post_json.call_args, None, post_json.call_args)
+        payload = post_json.call_args[0][1]
+        batch = payload.get("batch")
+        self.assertNotEquals(batch, None, batch)
+        self.assertEquals(len(batch), 1, batch)
+        replicated_user_id = list(batch.keys())[0]
+        self.assertEquals(replicated_user_id, user_id, replicated_user_id)
+
+        # There was replicated information about our user
+        # Check that it's not None, signifying that the user is back in the user
+        # directory
+        replicated_content = batch[user_id]
+        self.assertIsNotNone(replicated_content)
+
+
 class AccountValidityRenewalByEmailTestCase(unittest.HomeserverTestCase):
 
     servlets = [
@@ -476,8 +712,8 @@ class AccountValidityRenewalByEmailTestCase(unittest.HomeserverTestCase):
 
         (user_id, tok) = self.create_user()
 
-        # Move 6 days forward. This should trigger a renewal email to be sent.
-        self.reactor.advance(datetime.timedelta(days=6).total_seconds())
+        # Move 5 days forward. This should trigger a renewal email to be sent.
+        self.reactor.advance(datetime.timedelta(days=5).total_seconds())
         self.assertEqual(len(self.email_attempts), 1)
 
         # Retrieving the URL from the email is too much pain for now, so we
@@ -493,14 +729,32 @@ class AccountValidityRenewalByEmailTestCase(unittest.HomeserverTestCase):
         self.assertEquals(channel.result["code"], b"200", channel.result)
 
         # Check that we're getting HTML back.
-        content_type = None
-        for header in channel.result.get("headers", []):
-            if header[0] == b"Content-Type":
-                content_type = header[1]
-        self.assertEqual(content_type, b"text/html; charset=utf-8", channel.result)
+        content_type = channel.headers.getRawHeaders(b"Content-Type")
+        self.assertEqual(content_type, [b"text/html; charset=utf-8"], channel.result)
 
         # Check that the HTML we're getting is the one we expect on a successful renewal.
-        expected_html = self.hs.config.account_validity.account_renewed_html_content
+        expiration_ts = self.get_success(self.store.get_expiration_ts_for_user(user_id))
+        expected_html = self.hs.config.account_validity_account_renewed_template.render(
+            expiration_ts=expiration_ts
+        )
+        self.assertEqual(
+            channel.result["body"], expected_html.encode("utf8"), channel.result
+        )
+
+        # Move 1 day forward. Try to renew with the same token again.
+        url = "/_matrix/client/unstable/account_validity/renew?token=%s" % renewal_token
+        request, channel = self.make_request(b"GET", url)
+        self.assertEquals(channel.result["code"], b"200", channel.result)
+
+        # Check that we're getting HTML back.
+        content_type = channel.headers.getRawHeaders(b"Content-Type")
+        self.assertEqual(content_type, [b"text/html; charset=utf-8"], channel.result)
+
+        # Check that the HTML we're getting is the one we expect when reusing a
+        # token. The account expiration date should not have changed.
+        expected_html = self.hs.config.account_validity_account_previously_renewed_template.render(
+            expiration_ts=expiration_ts
+        )
         self.assertEqual(
             channel.result["body"], expected_html.encode("utf8"), channel.result
         )
@@ -538,15 +792,12 @@ class AccountValidityRenewalByEmailTestCase(unittest.HomeserverTestCase):
         self.assertEquals(channel.result["code"], b"404", channel.result)
 
         # Check that we're getting HTML back.
-        content_type = None
-        for header in channel.result.get("headers", []):
-            if header[0] == b"Content-Type":
-                content_type = header[1]
-        self.assertEqual(content_type, b"text/html; charset=utf-8", channel.result)
+        content_type = channel.headers.getRawHeaders(b"Content-Type")
+        self.assertEqual(content_type, [b"text/html; charset=utf-8"], channel.result)
 
         # Check that the HTML we're getting is the one we expect when using an
         # invalid/unknown token.
-        expected_html = self.hs.config.account_validity.invalid_token_html_content
+        expected_html = self.hs.config.account_validity_invalid_token_template.render()
         self.assertEqual(
             channel.result["body"], expected_html.encode("utf8"), channel.result
         )
@@ -654,7 +905,12 @@ class AccountValidityBackgroundJobTestCase(unittest.HomeserverTestCase):
         config["account_validity"] = {"enabled": False}
 
         self.hs = self.setup_test_homeserver(config=config)
-        self.hs.config.account_validity.period = self.validity_period
+
+        # We need to set these directly, instead of in the homeserver config dict above.
+        # This is due to account validity-related config options not being read by
+        # Synapse when account_validity.enabled is False.
+        self.hs.get_datastore()._account_validity_period = self.validity_period
+        self.hs.get_datastore()._account_validity_startup_job_max_delta = self.max_delta
 
         self.store = self.hs.get_datastore()
 
@@ -667,8 +923,6 @@ class AccountValidityBackgroundJobTestCase(unittest.HomeserverTestCase):
         allowed range.
         """
         user_id = self.register_user("kermit_delta", "user")
-
-        self.hs.config.account_validity.startup_job_max_delta = self.max_delta
 
         now_ms = self.hs.get_clock().time_msec()
         self.get_success(self.store._set_expiration_date_when_missing())

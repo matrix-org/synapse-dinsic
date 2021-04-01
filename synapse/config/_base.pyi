@@ -1,6 +1,7 @@
 from typing import Any, List, Optional
 
 from synapse.config import (
+    account_validity,
     api,
     appservice,
     captcha,
@@ -8,6 +9,7 @@ from synapse.config import (
     consent_config,
     database,
     emailconfig,
+    experimental,
     groups,
     jwt_config,
     key,
@@ -45,6 +47,7 @@ def path_exists(file_path: str): ...
 
 class RootConfig:
     server: server.ServerConfig
+    experimental: experimental.ExperimentalConfig
     tls: tls.TlsConfig
     database: database.DatabaseConfig
     logging: logger.LoggingConfig
@@ -53,6 +56,7 @@ class RootConfig:
     captcha: captcha.CaptchaConfig
     voip: voip.VoipConfig
     registration: registration.RegistrationConfig
+    account_validity: account_validity.AccountValidityConfig
     metrics: metrics.MetricsConfig
     api: api.ApiConfig
     appservice: appservice.AppServiceConfig

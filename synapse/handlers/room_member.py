@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 # Copyright 2016-2020 The Matrix.org Foundation C.I.C.
+# Copyright 2020 Sorunome
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,7 +13,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
 import abc
 import logging
 import random
@@ -31,7 +31,15 @@ from synapse.api.errors import (
 from synapse.api.ratelimiting import Ratelimiter
 from synapse.events import EventBase
 from synapse.events.snapshot import EventContext
-from synapse.types import JsonDict, Requester, RoomAlias, RoomID, StateMap, UserID
+from synapse.types import (
+    JsonDict,
+    Requester,
+    RoomAlias,
+    RoomID,
+    StateMap,
+    UserID,
+    get_domain_from_id,
+)
 from synapse.util.async_helpers import Linearizer
 from synapse.util.distributor import user_left_room
 
@@ -110,6 +118,20 @@ class RoomMemberHandler(metaclass=abc.ABCMeta):
         raise NotImplementedError()
 
     @abc.abstractmethod
+    async def remote_knock(
+        self, remote_room_hosts: List[str], room_id: str, user: UserID, content: dict,
+    ) -> Tuple[str, int]:
+        """Try and knock on a room that this server is not in
+
+        Args:
+            remote_room_hosts: List of servers that can be used to knock via.
+            room_id: Room that we are trying to knock on.
+            user: User who is trying to knock.
+            content: A dict that should be used as the content of the knock event.
+        """
+        raise NotImplementedError()
+
+    @abc.abstractmethod
     async def remote_reject_invite(
         self,
         invite_event_id: str,
@@ -129,6 +151,27 @@ class RoomMemberHandler(metaclass=abc.ABCMeta):
 
         Returns:
             event id, stream_id of the leave event
+        """
+        raise NotImplementedError()
+
+    @abc.abstractmethod
+    async def remote_rescind_knock(
+        self,
+        knock_event_id: str,
+        txn_id: Optional[str],
+        requester: Requester,
+        content: JsonDict,
+    ) -> Tuple[str, int]:
+        """Rescind a local knock made on a remote room.
+
+        Args:
+            knock_event_id: The ID of the knock event to rescind.
+            txn_id: An optional transaction ID supplied by the client.
+            requester: The user making the request, according to the access token.
+            content: The content of the generated leave event.
+
+        Returns:
+            A tuple containing (event_id, stream_id of the leave event).
         """
         raise NotImplementedError()
 
@@ -276,6 +319,7 @@ class RoomMemberHandler(metaclass=abc.ABCMeta):
         third_party_signed: Optional[dict] = None,
         ratelimit: bool = True,
         content: Optional[dict] = None,
+        new_room: bool = False,
         require_consent: bool = True,
     ) -> Tuple[str, int]:
         """Update a user's membership in a room.
@@ -316,6 +360,7 @@ class RoomMemberHandler(metaclass=abc.ABCMeta):
                 third_party_signed=third_party_signed,
                 ratelimit=ratelimit,
                 content=content,
+                new_room=new_room,
                 require_consent=require_consent,
             )
 
@@ -332,6 +377,7 @@ class RoomMemberHandler(metaclass=abc.ABCMeta):
         third_party_signed: Optional[dict] = None,
         ratelimit: bool = True,
         content: Optional[dict] = None,
+        new_room: bool = False,
         require_consent: bool = True,
     ) -> Tuple[str, int]:
         """Helper for update_membership.
@@ -408,8 +454,15 @@ class RoomMemberHandler(metaclass=abc.ABCMeta):
                     )
                     block_invite = True
 
+                is_published = await self.store.is_room_published(room_id)
+
                 if not self.spam_checker.user_may_invite(
-                    requester.user.to_string(), target.to_string(), room_id
+                    requester.user.to_string(),
+                    target.to_string(),
+                    third_party_invite=None,
+                    room_id=room_id,
+                    new_room=new_room,
+                    published_room=is_published,
                 ):
                     logger.info("Blocking invite due to spam checker")
                     block_invite = True
@@ -487,6 +540,25 @@ class RoomMemberHandler(metaclass=abc.ABCMeta):
                     # so don't really fit into the general auth process.
                     raise AuthError(403, "Guest access not allowed")
 
+            if (
+                self._server_notices_mxid is not None
+                and requester.user.to_string() == self._server_notices_mxid
+            ):
+                # allow the server notices mxid to join rooms
+                is_requester_admin = True
+
+            else:
+                is_requester_admin = await self.auth.is_server_admin(requester.user)
+
+            inviter = await self._get_inviter(target.to_string(), room_id)
+            if not is_requester_admin:
+                # We assume that if the spam checker allowed the user to create
+                # a room then they're allowed to join it.
+                if not new_room and not self.spam_checker.user_may_join_room(
+                    target.to_string(), room_id, is_invited=inviter is not None
+                ):
+                    raise SynapseError(403, "Not allowed to join this room")
+
             if not is_host_in_room:
                 time_now_s = self.clock.time()
                 (
@@ -521,50 +593,76 @@ class RoomMemberHandler(metaclass=abc.ABCMeta):
 
         elif effective_membership_state == Membership.LEAVE:
             if not is_host_in_room:
-                # perhaps we've been invited
+                # Figure out the user's current membership state for the room
                 (
                     current_membership_type,
                     current_membership_event_id,
                 ) = await self.store.get_local_current_membership_for_user_in_room(
                     target.to_string(), room_id
                 )
-                if (
-                    current_membership_type != Membership.INVITE
-                    or not current_membership_event_id
-                ):
+                if not current_membership_type or not current_membership_event_id:
                     logger.info(
                         "%s sent a leave request to %s, but that is not an active room "
-                        "on this server, and there is no pending invite",
+                        "on this server, or there is no pending invite or knock",
                         target,
                         room_id,
                     )
 
                     raise SynapseError(404, "Not a known room")
 
-                invite = await self.store.get_event(current_membership_event_id)
-                logger.info(
-                    "%s rejects invite to %s from %s", target, room_id, invite.sender
-                )
-
-                if not self.hs.is_mine_id(invite.sender):
-                    # send the rejection to the inviter's HS (with fallback to
-                    # local event)
-                    return await self.remote_reject_invite(
-                        invite.event_id, txn_id, requester, content,
+                # perhaps we've been invited
+                if current_membership_type == Membership.INVITE:
+                    invite = await self.store.get_event(current_membership_event_id)
+                    logger.info(
+                        "%s rejects invite to %s from %s",
+                        target,
+                        room_id,
+                        invite.sender,
                     )
 
-                # the inviter was on our server, but has now left. Carry on
-                # with the normal rejection codepath, which will also send the
-                # rejection out to any other servers we believe are still in the room.
+                    if not self.hs.is_mine_id(invite.sender):
+                        # send the rejection to the inviter's HS (with fallback to
+                        # local event)
+                        return await self.remote_reject_invite(
+                            invite.event_id, txn_id, requester, content,
+                        )
 
-                # thanks to overzealous cleaning up of event_forward_extremities in
-                # `delete_old_current_state_events`, it's possible to end up with no
-                # forward extremities here. If that happens, let's just hang the
-                # rejection off the invite event.
-                #
-                # see: https://github.com/matrix-org/synapse/issues/7139
-                if len(latest_event_ids) == 0:
-                    latest_event_ids = [invite.event_id]
+                    # the inviter was on our server, but has now left. Carry on
+                    # with the normal rejection codepath, which will also send the
+                    # rejection out to any other servers we believe are still in the room.
+
+                    # thanks to overzealous cleaning up of event_forward_extremities in
+                    # `delete_old_current_state_events`, it's possible to end up with no
+                    # forward extremities here. If that happens, let's just hang the
+                    # rejection off the invite event.
+                    #
+                    # see: https://github.com/matrix-org/synapse/issues/7139
+                    if len(latest_event_ids) == 0:
+                        latest_event_ids = [invite.event_id]
+
+                # or perhaps this is a remote room that a local user has knocked on
+                elif current_membership_type == Membership.KNOCK:
+                    knock = await self.store.get_event(current_membership_event_id)
+                    return await self.remote_rescind_knock(
+                        knock.event_id, txn_id, requester, content
+                    )
+
+        elif effective_membership_state == Membership.KNOCK:
+            if not is_host_in_room:
+                # The knock needs to be sent over federation instead
+                remote_room_hosts.append(get_domain_from_id(room_id))
+
+                content["membership"] = Membership.KNOCK
+
+                profile = self.profile_handler
+                if "displayname" not in content:
+                    content["displayname"] = await profile.get_displayname(target)
+                if "avatar_url" not in content:
+                    content["avatar_url"] = await profile.get_avatar_url(target)
+
+                return await self.remote_knock(
+                    remote_room_hosts, room_id, target, content
+                )
 
         return await self._local_membership_update(
             requester=requester,
@@ -780,6 +878,7 @@ class RoomMemberHandler(metaclass=abc.ABCMeta):
         id_server: str,
         requester: Requester,
         txn_id: Optional[str],
+        new_room: bool = False,
         id_access_token: Optional[str] = None,
     ) -> int:
         """Invite a 3PID to a room.
@@ -827,6 +926,16 @@ class RoomMemberHandler(metaclass=abc.ABCMeta):
                 Codes.FORBIDDEN,
             )
 
+        can_invite = await self.third_party_event_rules.check_threepid_can_be_invited(
+            medium, address, room_id
+        )
+        if not can_invite:
+            raise SynapseError(
+                403,
+                "This third-party identifier can not be invited in this room",
+                Codes.FORBIDDEN,
+            )
+
         if not self._enable_lookup:
             raise SynapseError(
                 403, "Looking up third-party identifiers is denied from this server"
@@ -835,6 +944,19 @@ class RoomMemberHandler(metaclass=abc.ABCMeta):
         invitee = await self.identity_handler.lookup_3pid(
             id_server, medium, address, id_access_token
         )
+
+        is_published = await self.store.is_room_published(room_id)
+
+        if not self.spam_checker.user_may_invite(
+            requester.user.to_string(),
+            invitee,
+            third_party_invite={"medium": medium, "address": address},
+            room_id=room_id,
+            new_room=new_room,
+            published_room=is_published,
+        ):
+            logger.info("Blocking invite due to spam checker")
+            raise SynapseError(403, "Invites have been disabled on this server")
 
         if invitee:
             # Note that update_membership with an action of "invite" can raise
@@ -1125,6 +1247,35 @@ class RoomMemberMasterHandler(RoomMemberHandler):
                 invite_event, txn_id, requester, content
             )
 
+    async def remote_rescind_knock(
+        self,
+        knock_event_id: str,
+        txn_id: Optional[str],
+        requester: Requester,
+        content: JsonDict,
+    ) -> Tuple[str, int]:
+        """
+        Rescinds a local knock made on a remote room
+
+        Args:
+            knock_event_id: The ID of the knock event to rescind.
+            txn_id: The transaction ID to use.
+            requester: The originator of the request.
+            content: The content of the leave event.
+
+        Implements RoomMemberHandler.remote_rescind_knock
+        """
+        # TODO: We don't yet support rescinding knocks over federation
+        # as we don't know which homeserver to send it to. An obvious
+        # candidate is the remote homeserver we originally knocked through,
+        # however we don't currently store that information.
+
+        # Just rescind the knock locally
+        knock_event = await self.store.get_event(knock_event_id)
+        return await self._generate_local_out_of_band_leave(
+            knock_event, txn_id, requester, content
+        )
+
     async def _generate_local_out_of_band_leave(
         self,
         previous_membership_event: EventBase,
@@ -1184,6 +1335,32 @@ class RoomMemberMasterHandler(RoomMemberHandler):
         assert result_event.internal_metadata.stream_ordering
 
         return result_event.event_id, result_event.internal_metadata.stream_ordering
+
+    async def remote_knock(
+        self, remote_room_hosts: List[str], room_id: str, user: UserID, content: dict,
+    ) -> Tuple[str, int]:
+        """Sends a knock to a room. Attempts to do so via one remote out of a given list.
+
+        Args:
+            remote_room_hosts: A list of homeservers to try knocking through.
+            room_id: The ID of the room to knock on.
+            user: The user to knock on behalf of.
+            content: The content of the knock event.
+
+        Returns:
+            A tuple of (event ID, stream ID).
+        """
+        # filter ourselves out of remote_room_hosts
+        remote_room_hosts = [
+            host for host in remote_room_hosts if host != self.hs.hostname
+        ]
+
+        if len(remote_room_hosts) == 0:
+            raise SynapseError(404, "No known servers")
+
+        return await self.federation_handler.do_knock(
+            remote_room_hosts, room_id, user.to_string(), content=content
+        )
 
     async def _user_left_room(self, target: UserID, room_id: str) -> None:
         """Implements RoomMemberHandler._user_left_room

@@ -36,7 +36,7 @@ class ProfileStoreTestCase(unittest.TestCase):
         yield defer.ensureDeferred(self.store.create_profile(self.u_frank.localpart))
 
         yield defer.ensureDeferred(
-            self.store.set_profile_displayname(self.u_frank.localpart, "Frank")
+            self.store.set_profile_displayname(self.u_frank.localpart, "Frank", 1)
         )
 
         self.assertEquals(
@@ -54,7 +54,7 @@ class ProfileStoreTestCase(unittest.TestCase):
 
         yield defer.ensureDeferred(
             self.store.set_profile_avatar_url(
-                self.u_frank.localpart, "http://my.site/here"
+                self.u_frank.localpart, "http://my.site/here", 1
             )
         )
 

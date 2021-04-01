@@ -38,6 +38,7 @@ class DeactivateAccountHandler(BaseHandler):
         self._device_handler = hs.get_device_handler()
         self._room_member_handler = hs.get_room_member_handler()
         self._identity_handler = hs.get_identity_handler()
+        self._profile_handler = hs.get_profile_handler()
         self.user_directory_handler = hs.get_user_directory_handler()
         self._server_name = hs.hostname
 
@@ -49,7 +50,7 @@ class DeactivateAccountHandler(BaseHandler):
         if hs.config.run_background_tasks:
             hs.get_reactor().callWhenRunning(self._start_user_parting)
 
-        self._account_validity_enabled = hs.config.account_validity.enabled
+        self._account_validity_enabled = hs.config.account_validity_enabled
 
     async def deactivate_account(
         self, user_id: str, erase_data: bool, id_server: Optional[str] = None
@@ -111,6 +112,9 @@ class DeactivateAccountHandler(BaseHandler):
         await self._auth_handler.delete_access_tokens_for_user(user_id)
 
         await self.store.user_set_password_hash(user_id, None)
+
+        user = UserID.from_string(user_id)
+        await self._profile_handler.set_active([user], False, False)
 
         # Add the user to a table of users pending deactivation (ie.
         # removal from all the rooms they're a member of)

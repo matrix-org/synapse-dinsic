@@ -21,8 +21,14 @@ from tests import unittest
 
 # The expected number of state events in a fresh public room.
 EXPT_NUM_STATE_EVTS_IN_FRESH_PUBLIC_ROOM = 5
+
 # The expected number of state events in a fresh private room.
-EXPT_NUM_STATE_EVTS_IN_FRESH_PRIVATE_ROOM = 6
+#
+# Note: we increase this by 2 on the dinsic branch as we send
+# a "im.vector.room.access_rules" state event into new private rooms,
+# and an encryption state event as all private rooms are encrypted
+# by default
+EXPT_NUM_STATE_EVTS_IN_FRESH_PRIVATE_ROOM = 7
 
 
 class StatsRoomTests(unittest.HomeserverTestCase):

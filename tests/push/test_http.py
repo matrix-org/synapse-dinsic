@@ -49,7 +49,9 @@ class HTTPPusherTests(HomeserverTestCase):
         config = self.default_config()
         config["start_pushers"] = True
 
-        hs = self.setup_test_homeserver(config=config, proxied_http_client=m)
+        hs = self.setup_test_homeserver(
+            config=config, proxied_blacklisted_http_client=m
+        )
 
         return hs
 
@@ -347,8 +349,8 @@ class HTTPPusherTests(HomeserverTestCase):
         self.assertEqual(len(self.push_attempts), 2)
         self.assertEqual(self.push_attempts[1][1], "example.com")
 
-        # check that this is low-priority
-        self.assertEqual(self.push_attempts[1][2]["notification"]["prio"], "low")
+        # check that this is high-priority
+        self.assertEqual(self.push_attempts[1][2]["notification"]["prio"], "high")
 
     def test_sends_high_priority_for_mention(self):
         """
@@ -419,8 +421,8 @@ class HTTPPusherTests(HomeserverTestCase):
         self.assertEqual(len(self.push_attempts), 2)
         self.assertEqual(self.push_attempts[1][1], "example.com")
 
-        # check that this is low-priority
-        self.assertEqual(self.push_attempts[1][2]["notification"]["prio"], "low")
+        # check that this is high-priority
+        self.assertEqual(self.push_attempts[1][2]["notification"]["prio"], "high")
 
     def test_sends_high_priority_for_atroom(self):
         """
@@ -498,8 +500,8 @@ class HTTPPusherTests(HomeserverTestCase):
         self.assertEqual(len(self.push_attempts), 2)
         self.assertEqual(self.push_attempts[1][1], "example.com")
 
-        # check that this is low-priority
-        self.assertEqual(self.push_attempts[1][2]["notification"]["prio"], "low")
+        # check that this is high-priority
+        self.assertEqual(self.push_attempts[1][2]["notification"]["prio"], "high")
 
     def test_push_unread_count_group_by_room(self):
         """

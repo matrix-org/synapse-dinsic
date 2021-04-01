@@ -34,6 +34,7 @@ class RetentionTestCase(unittest.HomeserverTestCase):
 
     def make_homeserver(self, reactor, clock):
         config = self.default_config()
+        config["default_room_version"] = "1"
         config["retention"] = {
             "enabled": True,
             "default_policy": {
@@ -243,6 +244,7 @@ class RetentionNoDefaultPolicyTestCase(unittest.HomeserverTestCase):
 
     def make_homeserver(self, reactor, clock):
         config = self.default_config()
+        config["default_room_version"] = "1"
         config["retention"] = {
             "enabled": True,
         }

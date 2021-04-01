@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
-# Copyright 2015 - 2016 OpenMarket Ltd
-# Copyright 2017 Vector Creations Ltd
+# Copyright 2015-2016 OpenMarket Ltd
+# Copyright 2017-2018 New Vector Ltd
+# Copyright 2019 The Matrix.org Foundation C.I.C.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -17,6 +18,7 @@
 import hmac
 import logging
 import random
+import re
 from typing import List, Union
 
 import synapse
@@ -118,10 +120,10 @@ class EmailRegisterRequestTokenRestServlet(RestServlet):
         send_attempt = body["send_attempt"]
         next_link = body.get("next_link")  # Optional param
 
-        if not check_3pid_allowed(self.hs, "email", email):
+        if not (await check_3pid_allowed(self.hs, "email", body["email"])):
             raise SynapseError(
                 403,
-                "Your email domain is not authorized to register on this server",
+                "Your email is not authorized to register on this server",
                 Codes.THREEPID_DENIED,
             )
 
@@ -197,7 +199,9 @@ class MsisdnRegisterRequestTokenRestServlet(RestServlet):
 
         msisdn = phone_number_to_msisdn(country, phone_number)
 
-        if not check_3pid_allowed(self.hs, "msisdn", msisdn):
+        assert_valid_client_secret(body["client_secret"])
+
+        if not (await check_3pid_allowed(self.hs, "msisdn", msisdn)):
             raise SynapseError(
                 403,
                 "Phone numbers are not authorized to register on this server",
@@ -353,15 +357,9 @@ class UsernameAvailabilityRestServlet(RestServlet):
                 403, "Registration has been disabled", errcode=Codes.FORBIDDEN
             )
 
-        ip = self.hs.get_ip_from_request(request)
-        with self.ratelimiter.ratelimit(ip) as wait_deferred:
-            await wait_deferred
-
-            username = parse_string(request, "username", required=True)
-
-            await self.registration_handler.check_username(username)
-
-            return 200, {"available": True}
+        # We are not interested in logging in via a username in this deployment.
+        # Simply allow anything here as it won't be used later.
+        return 200, {"available": True}
 
 
 class RegisterRestServlet(RestServlet):
@@ -411,17 +409,26 @@ class RegisterRestServlet(RestServlet):
                 "Do not understand membership kind: %s" % (kind.decode("utf8"),)
             )
 
-        # Pull out the provided username and do basic sanity checks early since
-        # the auth layer will store these in sessions.
+        # We don't care about usernames for this deployment. In fact, the act
+        # of checking whether they exist already can leak metadata about
+        # which users are already registered.
+        #
+        # Usernames are already derived via the provided email.
+        # So, if they're not necessary, just ignore them.
+        #
+        # (we do still allow appservices to set them below)
         desired_username = None
-        if "username" in body:
-            if not isinstance(body["username"], str) or len(body["username"]) > 512:
-                raise SynapseError(400, "Invalid username")
-            desired_username = body["username"]
+
+        desired_display_name = body.get("display_name")
 
         appservice = None
         if self.auth.has_access_token(request):
             appservice = self.auth.get_appservice_by_req(request)
+
+        # We need to retrieve the password early in order to pass it to
+        # application service registration
+        # This is specific to shadow server registration of users via an AS
+        password = body.pop("password", None)
 
         # fork off as soon as possible for ASes which have completely
         # different registration flows to normal users
@@ -431,7 +438,7 @@ class RegisterRestServlet(RestServlet):
             # Set the desired user according to the AS API (which uses the
             # 'user' key not 'username'). Since this is a new addition, we'll
             # fallback to 'username' if they gave one.
-            desired_username = body.get("user", desired_username)
+            desired_username = body.get("user", body.get("username"))
 
             # XXX we should check that desired_username is valid. Currently
             # we give appservices carte blanche for any insanity in mxids,
@@ -444,7 +451,7 @@ class RegisterRestServlet(RestServlet):
                 raise SynapseError(400, "Desired Username is missing or not a string")
 
             result = await self._do_appservice_registration(
-                desired_username, access_token, body
+                desired_username, password, desired_display_name, access_token, body
             )
 
             return 200, result
@@ -452,16 +459,6 @@ class RegisterRestServlet(RestServlet):
         # == Normal User Registration == (everyone else)
         if not self._registration_enabled:
             raise SynapseError(403, "Registration has been disabled")
-
-        # For regular registration, convert the provided username to lowercase
-        # before attempting to register it. This should mean that people who try
-        # to register with upper-case in their usernames don't get a nasty surprise.
-        #
-        # Note that we treat usernames case-insensitively in login, so they are
-        # free to carry on imagining that their username is CrAzYh4cKeR if that
-        # keeps them happy.
-        if desired_username is not None:
-            desired_username = desired_username.lower()
 
         # Check if this account is upgrading from a guest account.
         guest_access_token = body.get("guest_access_token", None)
@@ -471,7 +468,6 @@ class RegisterRestServlet(RestServlet):
         # Note that we remove the password from the body since the auth layer
         # will store the body in the session and we don't want a plaintext
         # password store there.
-        password = body.pop("password", None)
         if password is not None:
             if not isinstance(password, str) or len(password) > 512:
                 raise SynapseError(400, "Invalid password")
@@ -499,14 +495,6 @@ class RegisterRestServlet(RestServlet):
             # Extract the previously-hashed password from the session.
             password_hash = await self.auth_handler.get_session_data(
                 session_id, "password_hash", None
-            )
-
-        # Ensure that the username is valid.
-        if desired_username is not None:
-            await self.registration_handler.check_username(
-                desired_username,
-                guest_access_token=guest_access_token,
-                assigned_user_id=registered_user_id,
             )
 
         # Check if the user-interactive authentication flows are complete, if
@@ -547,13 +535,87 @@ class RegisterRestServlet(RestServlet):
                     medium = auth_result[login_type]["medium"]
                     address = auth_result[login_type]["address"]
 
-                    if not check_3pid_allowed(self.hs, medium, address):
+                    if not (await check_3pid_allowed(self.hs, medium, address)):
                         raise SynapseError(
                             403,
                             "Third party identifiers (email/phone numbers)"
                             + " are not authorized on this server",
                             Codes.THREEPID_DENIED,
                         )
+
+                    existingUid = await self.store.get_user_id_by_threepid(
+                        medium, address
+                    )
+
+                    if existingUid is not None:
+                        raise SynapseError(
+                            400, "%s is already in use" % medium, Codes.THREEPID_IN_USE
+                        )
+
+        if self.hs.config.register_mxid_from_3pid:
+            # override the desired_username based on the 3PID if any.
+            # reset it first to avoid folks picking their own username.
+            desired_username = None
+
+            # we should have an auth_result at this point if we're going to progress
+            # to register the user (i.e. we haven't picked up a registered_user_id
+            # from our session store), in which case get ready and gen the
+            # desired_username
+            if auth_result:
+                if (
+                    self.hs.config.register_mxid_from_3pid == "email"
+                    and LoginType.EMAIL_IDENTITY in auth_result
+                ):
+                    address = auth_result[LoginType.EMAIL_IDENTITY]["address"]
+                    desired_username = synapse.types.strip_invalid_mxid_characters(
+                        address.replace("@", "-").lower()
+                    )
+
+                    # find a unique mxid for the account, suffixing numbers
+                    # if needed
+                    while True:
+                        try:
+                            await self.registration_handler.check_username(
+                                desired_username,
+                                guest_access_token=guest_access_token,
+                                assigned_user_id=registered_user_id,
+                            )
+                            # if we got this far we passed the check.
+                            break
+                        except SynapseError as e:
+                            if e.errcode == Codes.USER_IN_USE:
+                                m = re.match(r"^(.*?)(\d+)$", desired_username)
+                                if m:
+                                    desired_username = m.group(1) + str(
+                                        int(m.group(2)) + 1
+                                    )
+                                else:
+                                    desired_username += "1"
+                            else:
+                                # something else went wrong.
+                                break
+
+                    if self.hs.config.register_just_use_email_for_display_name:
+                        desired_display_name = address
+                    else:
+                        # Custom mapping between email address and display name
+                        desired_display_name = _map_email_to_displayname(address)
+                elif (
+                    self.hs.config.register_mxid_from_3pid == "msisdn"
+                    and LoginType.MSISDN in auth_result
+                ):
+                    desired_username = auth_result[LoginType.MSISDN]["address"]
+                else:
+                    raise SynapseError(
+                        400, "Cannot derive mxid from 3pid; no recognised 3pid"
+                    )
+
+        if desired_username is not None:
+            await self.registration_handler.check_username(
+                desired_username,
+                guest_access_token=guest_access_token,
+                assigned_user_id=registered_user_id,
+            )
 
         if registered_user_id is not None:
             logger.info(
@@ -569,7 +631,12 @@ class RegisterRestServlet(RestServlet):
             if not password_hash:
                 raise SynapseError(400, "Missing params: password", Codes.MISSING_PARAM)
 
-            desired_username = params.get("username", None)
+            if not self.hs.config.register_mxid_from_3pid:
+                desired_username = params.get("username", None)
+            else:
+                # we keep the original desired_username derived from the 3pid above
+                pass
+
             guest_access_token = params.get("guest_access_token", None)
 
             if desired_username is not None:
@@ -618,6 +685,7 @@ class RegisterRestServlet(RestServlet):
                 localpart=desired_username,
                 password_hash=password_hash,
                 guest_access_token=guest_access_token,
+                default_display_name=desired_display_name,
                 threepid=threepid,
                 address=client_addr,
                 user_agent_ips=entries,
@@ -629,6 +697,14 @@ class RegisterRestServlet(RestServlet):
                     self.hs.config.mau_limits_reserved_threepids, threepid
                 ):
                     await self.store.upsert_monthly_active_user(registered_user_id)
+
+            if self.hs.config.shadow_server:
+                await self.registration_handler.shadow_register(
+                    localpart=desired_username,
+                    display_name=desired_display_name,
+                    auth_result=auth_result,
+                    params=params,
+                )
 
             # Remember that the user account has been registered (and the user
             # ID it was registered with, since it might not have been specified).
@@ -651,11 +727,37 @@ class RegisterRestServlet(RestServlet):
 
         return 200, return_dict
 
-    async def _do_appservice_registration(self, username, as_token, body):
+    async def _do_appservice_registration(
+        self, username, password, display_name, as_token, body
+    ):
+        # FIXME: appservice_register() is horribly duplicated with register()
+        # and they should probably just be combined together with a config flag.
+
+        if password:
+            # Hash the password
+            #
+            # In mainline hashing of the password was moved further on in the registration
+            # flow, but we need it here for the AS use-case of shadow servers
+            password = await self.auth_handler.hash(password)
         user_id = await self.registration_handler.appservice_register(
-            username, as_token
+            username, as_token, password, display_name
         )
-        return await self._create_registration_details(user_id, body)
+        result = await self._create_registration_details(user_id, body)
+
+        auth_result = body.get("auth_result")
+        if auth_result and LoginType.EMAIL_IDENTITY in auth_result:
+            threepid = auth_result[LoginType.EMAIL_IDENTITY]
+            await self.registration_handler.register_email_threepid(
+                user_id, threepid, result["access_token"]
+            )
+
+        if auth_result and LoginType.MSISDN in auth_result:
+            threepid = auth_result[LoginType.MSISDN]
+            await self.registration_handler.register_msisdn_threepid(
+                user_id, threepid, result["access_token"]
+            )
+
+        return result
 
     async def _create_registration_details(self, user_id, params):
         """Complete registration of newly-registered user
@@ -704,6 +806,60 @@ class RegisterRestServlet(RestServlet):
                 "home_server": self.hs.hostname,
             },
         )
+
+
+def cap(name):
+    """Capitalise parts of a name containing different words, including those
+    separated by hyphens.
+    For example, 'John-Doe'
+
+    Args:
+        name (str): The name to parse
+    """
+    if not name:
+        return name
+
+    # Split the name by whitespace then hyphens, capitalizing each part then
+    # joining it back together.
+    capatilized_name = " ".join(
+        "-".join(part.capitalize() for part in space_part.split("-"))
+        for space_part in name.split()
+    )
+    return capatilized_name
+
+
+def _map_email_to_displayname(address):
+    """Custom mapping from an email address to a user displayname
+
+    Args:
+        address (str): The email address to process
+    Returns:
+        str: The new displayname
+    """
+    # Split the part before and after the @ in the email.
+    # Replace all . with spaces in the first part
+    parts = address.replace(".", " ").split("@")
+
+    # Figure out which org this email address belongs to
+    org_parts = parts[1].split(" ")
+
+    # If this is a ...matrix.org email, mark them as an Admin
+    if org_parts[-2] == "matrix" and org_parts[-1] == "org":
+        org = "Tchap Admin"
+
+    # Is this is a ...gouv.fr address, set the org to whatever is before
+    # gouv.fr. If there isn't anything (a @gouv.fr email) simply mark their
+    # org as "gouv"
+    elif org_parts[-2] == "gouv" and org_parts[-1] == "fr":
+        org = org_parts[-3] if len(org_parts) > 2 else org_parts[-2]
+
+    # Otherwise, mark their org as the email's second-level domain name
+    else:
+        org = org_parts[-2]
+
+    desired_display_name = cap(parts[0]) + " [" + cap(org) + "]"
+
+    return desired_display_name
 
 
 def _calculate_registration_flows(

@@ -22,6 +22,7 @@ import time
 import urllib.parse
 from collections import OrderedDict
 from hashlib import sha256
+from io import open as io_open
 from textwrap import dedent
 from typing import Any, Callable, List, MutableMapping, Optional
 
@@ -190,7 +191,7 @@ class Config:
     @classmethod
     def read_file(cls, file_path, config_name):
         cls.check_file(file_path, config_name)
-        with open(file_path) as file_stream:
+        with io_open(file_path, encoding="utf-8") as file_stream:
             return file_stream.read()
 
     def read_templates(
