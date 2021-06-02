@@ -1416,9 +1416,11 @@ class EventCreationHandler:
 
         # the event type hasn't changed, so there's no point in re-calculating the
         # auth events.
+        prev_event_ids = await self.store.get_prev_events_for_room(builder.room_id)
+
         event = await builder.build(
-            prev_event_ids=original_event.prev_event_ids(),
-            auth_event_ids=original_event.auth_event_ids(),
+            prev_event_ids=prev_event_ids,
+            auth_event_ids=None,
         )
 
         # we rebuild the event context, to be on the safe side. If nothing else,
