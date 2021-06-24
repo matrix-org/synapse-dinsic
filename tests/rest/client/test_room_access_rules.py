@@ -15,7 +15,6 @@
 import json
 import random
 import string
-from typing import Optional
 
 from mock import Mock
 
@@ -31,7 +30,7 @@ from synapse.third_party_rules.access_rules import (
     AccessRules,
     RoomAccessRules,
 )
-from synapse.types import JsonDict, create_requester
+from synapse.types import create_requester
 
 from tests import unittest
 
