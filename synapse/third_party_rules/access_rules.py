@@ -458,7 +458,9 @@ class RoomAccessRules(object):
         return False
 
     async def _on_frozen_state_change(
-        self, event: EventBase, state_events: StateMap[EventBase],
+        self,
+        event: EventBase,
+        state_events: StateMap[EventBase],
     ) -> Union[bool, dict]:
         frozen = event.content.get("frozen", None)
         if not isinstance(frozen, bool):
@@ -474,7 +476,9 @@ class RoomAccessRules(object):
             return False
 
         current_frozen_state = (
-            state_events.get((FROZEN_STATE_TYPE, ""))
+            state_events.get(
+                (FROZEN_STATE_TYPE, ""),
+            )
         )  # type: EventBase
 
         if (
@@ -490,7 +494,9 @@ class RoomAccessRules(object):
             return True
 
         current_power_levels = (
-            state_events.get((EventTypes.PowerLevels, ""))
+            state_events.get(
+                (EventTypes.PowerLevels, ""),
+            )
         )  # type: EventBase
 
         power_levels_content = unfreeze(current_power_levels.content)
