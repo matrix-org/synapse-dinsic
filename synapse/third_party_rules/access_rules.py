@@ -473,6 +473,17 @@ class RoomAccessRules(object):
         ):
             return False
 
+        current_frozen_state = (
+            state_events.get((FROZEN_STATE_TYPE, ""))
+        )  # type: EventBase
+
+        if (
+            current_frozen_state is not None
+            and current_frozen_state.content.get("frozen") == frozen
+        ):
+            # This is a noop, accept the new event but don't do anything more.
+            return True
+
         # If the event was received over federation, we want to accept it but not to
         # change the power levels.
         if not self._is_local_user(event.sender):
