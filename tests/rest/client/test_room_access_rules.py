@@ -968,7 +968,8 @@ class RoomAccessTestCase(unittest.HomeserverTestCase):
 
     def test_auto_freeze_and_unfreeze(self):
         room_id = self.create_room(
-            preset=RoomCreationPreset.PRIVATE_CHAT, invite=[self.invitee_id],
+            preset=RoomCreationPreset.PRIVATE_CHAT,
+            invite=[self.invitee_id],
         )
 
         self.helper.join(

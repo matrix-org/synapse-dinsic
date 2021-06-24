@@ -475,10 +475,8 @@ class RoomAccessRules(object):
         ):
             return False
 
-        current_frozen_state = (
-            state_events.get(
-                (FROZEN_STATE_TYPE, ""),
-            )
+        current_frozen_state = state_events.get(
+            (FROZEN_STATE_TYPE, ""),
         )  # type: EventBase
 
         if (
@@ -493,10 +491,8 @@ class RoomAccessRules(object):
         if not self._is_local_user(event.sender):
             return True
 
-        current_power_levels = (
-            state_events.get(
-                (EventTypes.PowerLevels, ""),
-            )
+        current_power_levels = state_events.get(
+            (EventTypes.PowerLevels, ""),
         )  # type: EventBase
 
         power_levels_content = unfreeze(current_power_levels.content)
