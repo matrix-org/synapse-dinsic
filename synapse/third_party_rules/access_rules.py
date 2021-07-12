@@ -322,7 +322,7 @@ class RoomAccessRules(object):
         self,
         event: EventBase,
         state_events: StateMap[EventBase],
-    ) -> bool:
+    ) -> Union[bool, dict]:
         """Implements synapse.events.ThirdPartyEventRules.check_event_allowed.
 
         Checks the event's type and the current rule and calls the right function to
@@ -334,7 +334,8 @@ class RoomAccessRules(object):
                 State events in the room the event originated from.
 
         Returns:
-            True if the event can be allowed, False otherwise.
+            True if the event can be allowed, False otherwise, or a dictionary if the
+            event needs to be rebuilt (containing the event's new content).
         """
         if event.type == FROZEN_STATE_TYPE:
             return await self._on_frozen_state_change(event, state_events)
