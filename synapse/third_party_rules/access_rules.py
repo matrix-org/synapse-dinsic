@@ -442,7 +442,7 @@ class RoomAccessRules(object):
             # themselves as admin.
             current_power_levels = state_events.get((EventTypes.PowerLevels, ""))
             if current_power_levels:
-                old_content = current_power_levels.content
+                old_content = current_power_levels.content.copy()
                 old_content["users_default"] = 0
 
                 new_content = unfreeze(event.content)
