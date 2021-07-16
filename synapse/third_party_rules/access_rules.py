@@ -501,9 +501,8 @@ class RoomAccessRules(object):
         if not frozen:
             # We're unfreezing the room: enforce the right value for the power levels so
             # the room isn't in a weird/broken state afterwards.
-            users = power_levels_content.get("users", {})
+            users = power_levels_content.setdefault("users", {})
             users[event.sender] = 100
-            power_levels_content["users"] = users
             power_levels_content["users_default"] = 0
         else:
             # Send a new power levels event with a similar content to the previous one
@@ -624,7 +623,7 @@ class RoomAccessRules(object):
             ):
                 await self._freeze_room_if_last_admin_is_leaving(event, state_events)
                 if ret:
-                    # Return an event dict to force Synapse into rebuilding th event.
+                    # Return an event dict to force Synapse into rebuilding the event.
                     return event.get_dict()
 
         return ret
@@ -687,8 +686,6 @@ class RoomAccessRules(object):
                 "state_key": "",
             }
         )
-
-        return
 
     def _on_membership_or_invite_restricted(self, event: EventBase) -> bool:
         """Implements the checks and behaviour specified for the "restricted" rule.

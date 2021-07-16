@@ -1414,8 +1414,8 @@ class EventCreationHandler:
         for k, v in original_event.internal_metadata.get_dict().items():
             setattr(builder.internal_metadata, k, v)
 
-        # the event type hasn't changed, so there's no point in re-calculating the
-        # auth events.
+        # modules can send new state events, so we re-calculate the auth events just in
+        # case.
         prev_event_ids = await self.store.get_prev_events_for_room(builder.room_id)
 
         event = await builder.build(
