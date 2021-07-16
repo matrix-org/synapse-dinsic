@@ -334,7 +334,7 @@ class RoomAccessRules(object):
                 State events in the room the event originated from.
 
         Returns:
-            True if the event can be allowed, False otherwise, or a dictionary if the
+            True if the event should be allowed, False if it should be rejected, or a dictionary if the
             event needs to be rebuilt (containing the event's new content).
         """
         if event.type == FROZEN_STATE_TYPE:
