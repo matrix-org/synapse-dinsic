@@ -678,37 +678,6 @@ class RegistrationHandler(BaseHandler):
                     errcode=Codes.EXCLUSIVE,
                 )
 
-    async def shadow_register(self, localpart, display_name, auth_result, params):
-        """Invokes the current registration on another server, using
-        shared secret registration, passing in any auth_results from
-        other registration UI auth flows (e.g. validated 3pids)
-        Useful for setting up shadow/backup accounts on a parallel deployment.
-        """
-
-        # TODO: retries
-        shadow_hs_url = self.hs.config.shadow_server.get("hs_url")
-        as_token = self.hs.config.shadow_server.get("as_token")
-
-        await self.http_client.post_json_get_json(
-            "%s/_matrix/client/r0/register?access_token=%s" % (shadow_hs_url, as_token),
-            {
-                # XXX: auth_result is an unspecified extension for shadow registration
-                "auth_result": auth_result,
-                # XXX: another unspecified extension for shadow registration to ensure
-                # that the displayname is correctly set by the masters erver
-                "display_name": display_name,
-                "username": localpart,
-                "password": params.get("password"),
-                "bind_msisdn": params.get("bind_msisdn"),
-                "device_id": params.get("device_id"),
-                "initial_device_display_name": params.get(
-                    "initial_device_display_name"
-                ),
-                "inhibit_login": False,
-                "access_token": as_token,
-            },
-        )
-
     async def check_registration_ratelimit(self, address: Optional[str]) -> None:
         """A simple helper method to check whether the registration rate limit has been hit
         for a given IP address
