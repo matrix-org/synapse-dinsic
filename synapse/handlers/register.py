@@ -610,9 +610,7 @@ class RegistrationHandler(BaseHandler):
         """
         await self._auto_join_rooms(user_id)
 
-    async def appservice_register(
-        self, user_localpart: str, as_token: str
-    ):
+    async def appservice_register(self, user_localpart: str, as_token: str):
         # FIXME: this should be factored out and merged with normal register()
         user = UserID(user_localpart, self.hs.hostname)
         user_id = user.to_string()
