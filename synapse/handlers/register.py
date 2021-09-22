@@ -611,7 +611,7 @@ class RegistrationHandler(BaseHandler):
         await self._auto_join_rooms(user_id)
 
     async def appservice_register(
-        self, user_localpart: str, as_token: str, password_hash: str, display_name: str
+        self, user_localpart: str, as_token: str
     ):
         # FIXME: this should be factored out and merged with normal register()
         user = UserID(user_localpart, self.hs.hostname)
@@ -630,26 +630,12 @@ class RegistrationHandler(BaseHandler):
 
         self.check_user_id_not_appservice_exclusive(user_id, allowed_appservice=service)
 
-        display_name = display_name or user.localpart
-
         await self.register_with_store(
             user_id=user_id,
-            password_hash=password_hash,
+            password_hash="",
             appservice_id=service_id,
-            create_profile_with_displayname=display_name,
+            create_profile_with_displayname=user.localpart,
         )
-
-        requester = create_requester(user)
-        await self.profile_handler.set_displayname(
-            user, requester, display_name, by_admin=True
-        )
-
-        if self.hs.config.user_directory_search_all_users:
-            profile = await self.store.get_profileinfo(user_localpart)
-            await self.user_directory_handler.handle_local_profile_change(
-                user_id, profile
-            )
-
         return user_id
 
     def check_user_id_not_appservice_exclusive(
