@@ -762,7 +762,11 @@ class RegisterRestServlet(RestServlet):
         return 200, return_dict
 
     async def _do_appservice_registration(
-        self, username, as_token, body, should_issue_refresh_token: bool = False,
+        self,
+        username,
+        as_token,
+        body,
+        should_issue_refresh_token: bool = False,
     ):
         user_id = await self.registration_handler.appservice_register(
             username, as_token

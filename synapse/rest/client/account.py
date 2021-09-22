@@ -17,7 +17,7 @@ import logging
 import random
 import re
 from http import HTTPStatus
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 from urllib.parse import urlparse
 
 from synapse.api.constants import LoginType
@@ -38,7 +38,6 @@ from synapse.http.servlet import (
 )
 from synapse.metrics import threepid_send_requests
 from synapse.push.mailer import Mailer
-from synapse.types import UserID
 from synapse.util.msisdn import phone_number_to_msisdn
 from synapse.util.stringutils import assert_valid_client_secret, random_string
 from synapse.util.threepids import check_3pid_allowed, validate_email
