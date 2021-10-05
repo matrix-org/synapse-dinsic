@@ -346,8 +346,35 @@ class IdentityHandler(BaseHandler):
 
         if self.hs.config.bind_new_user_emails_to_sydent:
             id_server_url = self.hs.config.bind_new_user_emails_to_sydent
+            url = "%s/_matrix/identity/internal/unbind" % (id_server_url,)
+            content = {
+                "mxid": mxid,
+                "medium": threepid["medium"],
+                "address": threepid["address"],
+            }
+            headers = {}
+        else:
+            url_path = "/_matrix/identity/api/v1/3pid/unbind"
+            url = id_server_url + url_path
+            content = {
+                "mxid": mxid,
+                "threepid": {
+                    "medium": threepid["medium"],
+                    "address": threepid["address"],
+                },
+            }
 
-        url = "%s/_matrix/identity/api/v1/3pid/unbind" % (id_server_url,)
+            # we abuse the federation http client to sign the request, but we have to send it
+            # using the normal http client since we don't want the SRV lookup and want normal
+            # 'browser-like' HTTPS.
+            auth_headers = self.federation_http_client.build_auth_headers(
+                destination=None,
+                method=b"POST",
+                url_bytes=url_path.encode("ascii"),
+                content=content,
+                destination_is=id_server.encode("ascii"),
+            )
+            headers = {b"Authorization": auth_headers}
 
         try:
             # Use the blacklisting http client as this call is only to identity servers
