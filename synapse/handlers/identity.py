@@ -316,27 +316,6 @@ class IdentityHandler(BaseHandler):
                 "id_server must be a valid hostname with optional port and path components",
             )
 
-        url = "https://%s/_matrix/identity/api/v1/3pid/unbind" % (id_server,)
-        url_bytes = b"/_matrix/identity/api/v1/3pid/unbind"
-
-        content = {
-            "mxid": mxid,
-            "threepid": {"medium": threepid["medium"], "address": threepid["address"]},
-        }
-
-        # we abuse the federation http client to sign the request, but we have to send it
-        # using the normal http client since we don't want the SRV lookup and want normal
-        # 'browser-like' HTTPS.
-        url_bytes = "/_matrix/identity/api/v1/3pid/unbind".encode("ascii")
-        auth_headers = self.federation_http_client.build_auth_headers(
-            destination=None,
-            method=b"POST",
-            url_bytes=url_bytes,
-            content=content,
-            destination_is=id_server.encode("ascii"),
-        )
-        headers = {b"Authorization": auth_headers}
-
         # if we have a rewrite rule set for the identity server,
         # apply it now.
         #
