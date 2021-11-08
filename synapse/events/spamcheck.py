@@ -76,6 +76,7 @@ CHECK_MEDIA_FILE_FOR_SPAM_CALLBACK = Callable[
     Awaitable[bool],
 ]
 
+
 def load_legacy_spam_checkers(hs: "synapse.server.HomeServer"):
     """Wrapper that loads spam checkers configured using the old configuration, and
     registers the spam checker hooks they implement.
@@ -463,25 +464,6 @@ class SpamChecker:
         """
         for callback in self._user_may_publish_room_callbacks:
             if await callback(userid, room_id) is False:
-                return False
-
-        return True
-
-    async def user_may_join_room(self, userid: str, room_id: str, is_invited: bool):
-        """Checks if a given users is allowed to join a room.
-
-        Not called when a user creates a room.
-
-        Args:
-            userid:
-            room_id:
-            is_invited: Whether the user is invited into the room
-
-        Returns:
-            bool: Whether the user may join the room
-        """
-        for callback in self._user_may_join_room_callbacks:
-            if await callback(userid, room_id, is_invited) is False:
                 return False
 
         return True
