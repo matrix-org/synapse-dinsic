@@ -77,7 +77,7 @@ CHECK_MEDIA_FILE_FOR_SPAM_CALLBACK = Callable[
 ]
 
 
-def load_legacy_spam_checkers(hs: "synapse.server.HomeServer") -> None:
+def load_legacy_spam_checkers(hs: "synapse.server.HomeServer"):
     """Wrapper that loads spam checkers configured using the old configuration, and
     registers the spam checker hooks they implement.
     """
