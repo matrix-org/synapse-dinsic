@@ -14,7 +14,6 @@
 # limitations under the License.
 import logging
 import random
-import re
 from typing import TYPE_CHECKING, List, Optional, Tuple
 
 from twisted.web.server import Request
@@ -343,15 +342,28 @@ class UsernameAvailabilityRestServlet(RestServlet):
             ),
         )
 
+        self.inhibit_user_in_use_error = (
+            hs.config.registration.inhibit_user_in_use_error
+        )
+
     async def on_GET(self, request: Request) -> Tuple[int, JsonDict]:
         if not self.hs.config.registration.enable_registration:
             raise SynapseError(
                 403, "Registration has been disabled", errcode=Codes.FORBIDDEN
             )
 
-        # We are not interested in logging in via a username in this deployment.
-        # Simply allow anything here as it won't be used later.
-        return 200, {"available": True}
+        if self.inhibit_user_in_use_error:
+            return 200, {"available": True}
+
+        ip = request.getClientIP()
+        with self.ratelimiter.ratelimit(ip) as wait_deferred:
+            await wait_deferred
+
+            username = parse_string(request, "username", required=True)
+
+            await self.registration_handler.check_username(username)
+
+            return 200, {"available": True}
 
 
 class RegistrationTokenValidityRestServlet(RestServlet):
@@ -416,9 +428,13 @@ class RegisterRestServlet(RestServlet):
         self.ratelimiter = hs.get_registration_ratelimiter()
         self.password_policy_handler = hs.get_password_policy_handler()
         self.clock = hs.get_clock()
+        self.password_auth_provider = hs.get_password_auth_provider()
         self._registration_enabled = self.hs.config.registration.enable_registration
         self._msc2918_enabled = (
             hs.config.registration.refreshable_access_token_lifetime is not None
+        )
+        self._inhibit_user_in_use_error = (
+            hs.config.registration.inhibit_user_in_use_error
         )
 
         self._registration_flows = _calculate_registration_flows(
@@ -452,22 +468,13 @@ class RegisterRestServlet(RestServlet):
         else:
             should_issue_refresh_token = False
 
-        # We don't care about usernames for this deployment. In fact, the act
-        # of checking whether they exist already can leak metadata about
-        # which users are already registered.
-        #
-        # Usernames are already derived via the provided email.
-        # So, if they're not necessary, just ignore them.
-        #
-        # (we do still allow appservices to set them below)
+        # Pull out the provided username and do basic sanity checks early since
+        # the auth layer will store these in sessions.
         desired_username = None
-
-        desired_display_name = body.get("display_name")
-
-        # We need to retrieve the password early in order to pass it to
-        # application service registration
-        # This is specific to shadow server registration of users via an AS
-        password = body.pop("password", None)
+        if "username" in body:
+            if not isinstance(body["username"], str) or len(body["username"]) > 512:
+                raise SynapseError(400, "Invalid username")
+            desired_username = body["username"]
 
         # fork off as soon as possible for ASes which have completely
         # different registration flows to normal users
@@ -486,7 +493,7 @@ class RegisterRestServlet(RestServlet):
             # Set the desired user according to the AS API (which uses the
             # 'user' key not 'username'). Since this is a new addition, we'll
             # fallback to 'username' if they gave one.
-            desired_username = body.get("user", body.get("username"))
+            desired_username = body.get("user", desired_username)
 
             # XXX we should check that desired_username is valid. Currently
             # we give appservices carte blanche for any insanity in mxids,
@@ -516,6 +523,16 @@ class RegisterRestServlet(RestServlet):
         if not self._registration_enabled:
             raise SynapseError(403, "Registration has been disabled", Codes.FORBIDDEN)
 
+        # For regular registration, convert the provided username to lowercase
+        # before attempting to register it. This should mean that people who try
+        # to register with upper-case in their usernames don't get a nasty surprise.
+        #
+        # Note that we treat usernames case-insensitively in login, so they are
+        # free to carry on imagining that their username is CrAzYh4cKeR if that
+        # keeps them happy.
+        if desired_username is not None:
+            desired_username = desired_username.lower()
+
         # Check if this account is upgrading from a guest account.
         guest_access_token = body.get("guest_access_token", None)
 
@@ -524,6 +541,7 @@ class RegisterRestServlet(RestServlet):
         # Note that we remove the password from the body since the auth layer
         # will store the body in the session and we don't want a plaintext
         # password store there.
+        password = body.pop("password", None)
         if password is not None:
             if not isinstance(password, str) or len(password) > 512:
                 raise SynapseError(400, "Invalid password")
@@ -551,6 +569,15 @@ class RegisterRestServlet(RestServlet):
             # Extract the previously-hashed password from the session.
             password_hash = await self.auth_handler.get_session_data(
                 session_id, UIAuthSessionDataConstants.PASSWORD_HASH, None
+            )
+
+        # Ensure that the username is valid.
+        if desired_username is not None:
+            await self.registration_handler.check_username(
+                desired_username,
+                guest_access_token=guest_access_token,
+                assigned_user_id=registered_user_id,
+                inhibit_user_in_use_error=self._inhibit_user_in_use_error,
             )
 
         # Check if the user-interactive authentication flows are complete, if
@@ -600,82 +627,6 @@ class RegisterRestServlet(RestServlet):
                             Codes.THREEPID_DENIED,
                         )
 
-                    existingUid = await self.store.get_user_id_by_threepid(
-                        medium, address
-                    )
-
-                    if existingUid is not None:
-                        raise SynapseError(
-                            400, "%s is already in use" % medium, Codes.THREEPID_IN_USE
-                        )
-
-        if self.hs.config.registration.register_mxid_from_3pid:
-            # override the desired_username based on the 3PID if any.
-            # reset it first to avoid folks picking their own username.
-            desired_username = None
-
-            # we should have an auth_result at this point if we're going to progress
-            # to register the user (i.e. we haven't picked up a registered_user_id
-            # from our session store), in which case get ready and gen the
-            # desired_username
-            if auth_result:
-                if (
-                    self.hs.config.registration.register_mxid_from_3pid == "email"
-                    and LoginType.EMAIL_IDENTITY in auth_result
-                ):
-                    address = auth_result[LoginType.EMAIL_IDENTITY]["address"]
-                    desired_username = synapse.types.strip_invalid_mxid_characters(
-                        address.replace("@", "-").lower()
-                    )
-
-                    # find a unique mxid for the account, suffixing numbers
-                    # if needed
-                    while True:
-                        try:
-                            await self.registration_handler.check_username(
-                                desired_username,
-                                guest_access_token=guest_access_token,
-                                assigned_user_id=registered_user_id,
-                            )
-                            # if we got this far we passed the check.
-                            break
-                        except SynapseError as e:
-                            if e.errcode == Codes.USER_IN_USE:
-                                m = re.match(r"^(.*?)(\d+)$", desired_username)
-                                if m:
-                                    desired_username = m.group(1) + str(
-                                        int(m.group(2)) + 1
-                                    )
-                                else:
-                                    desired_username += "1"
-                            else:
-                                # something else went wrong.
-                                break
-
-                    if (
-                        self.hs.config.registration.register_just_use_email_for_display_name
-                    ):
-                        desired_display_name = address
-                    else:
-                        # Custom mapping between email address and display name
-                        desired_display_name = _map_email_to_displayname(address)
-                elif (
-                    self.hs.config.registration.register_mxid_from_3pid == "msisdn"
-                    and LoginType.MSISDN in auth_result
-                ):
-                    desired_username = auth_result[LoginType.MSISDN]["address"]
-                else:
-                    raise SynapseError(
-                        400, "Cannot derive mxid from 3pid; no recognised 3pid"
-                    )
-
-        if desired_username is not None:
-            await self.registration_handler.check_username(
-                desired_username,
-                guest_access_token=guest_access_token,
-                assigned_user_id=registered_user_id,
-            )
-
         if registered_user_id is not None:
             logger.info(
                 "Already registered user ID %r for this session", registered_user_id
@@ -690,11 +641,15 @@ class RegisterRestServlet(RestServlet):
             if not password_hash:
                 raise SynapseError(400, "Missing params: password", Codes.MISSING_PARAM)
 
-            if not self.hs.config.registration.register_mxid_from_3pid:
+            desired_username = await (
+                self.password_auth_provider.get_username_for_registration(
+                    auth_result,
+                    params,
+                )
+            )
+
+            if desired_username is None:
                 desired_username = params.get("username", None)
-            else:
-                # we keep the original desired_username derived from the 3pid above
-                pass
 
             guest_access_token = params.get("guest_access_token", None)
 
@@ -739,6 +694,20 @@ class RegisterRestServlet(RestServlet):
             entries = await self.store.get_user_agents_ips_to_ui_auth_session(
                 session_id
             )
+
+            # TODO: This won't be needed anymore once https://github.com/matrix-org/matrix-dinsic/issues/793
+            #  is resolved.
+            desired_display_name = body.get("display_name")
+            if auth_result:
+                if LoginType.EMAIL_IDENTITY in auth_result:
+                    address = auth_result[LoginType.EMAIL_IDENTITY]["address"]
+                    if (
+                        self.hs.config.registration.register_just_use_email_for_display_name
+                    ):
+                        desired_display_name = address
+                    else:
+                        # Custom mapping between email address and display name
+                        desired_display_name = _map_email_to_displayname(address)
 
             registered_user_id = await self.registration_handler.register_user(
                 localpart=desired_username,
