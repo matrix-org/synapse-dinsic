@@ -488,6 +488,19 @@ class ServerConfig(Config):
         # events with profile information that differ from the target's global profile.
         self.allow_per_room_profiles = config.get("allow_per_room_profiles", True)
 
+        # The maximum size an avatar can have, in bytes.
+        self.max_avatar_size = config.get("max_avatar_size")
+        if self.max_avatar_size is not None:
+            self.max_avatar_size = self.parse_size(self.max_avatar_size)
+
+        # The MIME types allowed for an avatar.
+        self.allowed_avatar_mimetypes = config.get("allowed_avatar_mimetypes")
+        if self.allowed_avatar_mimetypes and not isinstance(
+            self.allowed_avatar_mimetypes,
+            list,
+        ):
+            raise ConfigError("allowed_avatar_mimetypes must be a list")
+
         # Whether to show the users on this homeserver in the user directory. Defaults to
         # True.
         self.show_users_in_user_directory = config.get(
@@ -1172,73 +1185,19 @@ class ServerConfig(Config):
         #
         #allow_per_room_profiles: false
 
-        # Whether to show the users on this homeserver in the user directory. Defaults to
-        # 'true'.
+        # The largest allowed file size for a user avatar. Defaults to no restriction.
         #
-        #show_users_in_user_directory: false
-
-        # Message retention policy at the server level.
+        # Note that user avatar changes will not work if this is set without
+        # using Synapse's media repository.
         #
-        # Room admins and mods can define a retention period for their rooms using the
-        # 'm.room.retention' state event, and server admins can cap this period by setting
-        # the 'allowed_lifetime_min' and 'allowed_lifetime_max' config options.
+        #max_avatar_size: 10M
+
+        # The MIME types allowed for user avatars. Defaults to no restriction.
         #
-        # If this feature is enabled, Synapse will regularly look for and purge events
-        # which are older than the room's maximum retention period. Synapse will also
-        # filter events received over federation so that events that should have been
-        # purged are ignored and not stored again.
+        # Note that user avatar changes will not work if this is set without
+        # using Synapse's media repository.
         #
-        retention:
-          # The message retention policies feature is disabled by default. Uncomment the
-          # following line to enable it.
-          #
-          #enabled: true
-
-          # Default retention policy. If set, Synapse will apply it to rooms that lack the
-          # 'm.room.retention' state event. Currently, the value of 'min_lifetime' doesn't
-          # matter much because Synapse doesn't take it into account yet.
-          #
-          #default_policy:
-          #  min_lifetime: 1d
-          #  max_lifetime: 1y
-
-          # Retention policy limits. If set, a user won't be able to send a
-          # 'm.room.retention' event which features a 'min_lifetime' or a 'max_lifetime'
-          # that's not within this range. This is especially useful in closed federations,
-          # in which server admins can make sure every federating server applies the same
-          # rules.
-          #
-          #allowed_lifetime_min: 1d
-          #allowed_lifetime_max: 1y
-
-          # Server admins can define the settings of the background jobs purging the
-          # events which lifetime has expired under the 'purge_jobs' section.
-          #
-          # If no configuration is provided, a single job will be set up to delete expired
-          # events in every room daily.
-          #
-          # Each job's configuration defines which range of message lifetimes the job
-          # takes care of. For example, if 'shortest_max_lifetime' is '2d' and
-          # 'longest_max_lifetime' is '3d', the job will handle purging expired events in
-          # rooms whose state defines a 'max_lifetime' that's both higher than 2 days, and
-          # lower than or equal to 3 days. Both the minimum and the maximum value of a
-          # range are optional, e.g. a job with no 'shortest_max_lifetime' and a
-          # 'longest_max_lifetime' of '3d' will handle every room with a retention policy
-          # which 'max_lifetime' is lower than or equal to three days.
-          #
-          # The rationale for this per-job configuration is that some rooms might have a
-          # retention policy with a low 'max_lifetime', where history needs to be purged
-          # of outdated messages on a very frequent basis (e.g. every 5min), but not want
-          # that purge to be performed by a job that's iterating over every room it knows,
-          # which would be quite heavy on the server.
-          #
-          #purge_jobs:
-          #  - shortest_max_lifetime: 1d
-          #    longest_max_lifetime: 3d
-          #    interval: 5m:
-          #  - shortest_max_lifetime: 3d
-          #    longest_max_lifetime: 1y
-          #    interval: 24h
+        #allowed_avatar_mimetypes: ["image/png", "image/jpeg", "image/gif"]
 
         # How long to keep redacted events in unredacted form in the database. After
         # this period redacted events get replaced with their redacted form in the DB.

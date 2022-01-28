@@ -41,6 +41,8 @@ from synapse.types import (
     create_requester,
     get_domain_from_id,
 )
+from synapse.util.caches.descriptors import cached
+from synapse.util.stringutils import parse_and_validate_mxc_uri
 
 if TYPE_CHECKING:
     from synapse.server import HomeServer
@@ -77,12 +79,14 @@ class ProfileHandler:
         self.request_ratelimiter = hs.get_request_ratelimiter()
 
         self.http_client = hs.get_simple_http_client()
-
-        self.max_avatar_size = hs.config.media.max_avatar_size
-        self.allowed_avatar_mimetypes = hs.config.media.allowed_avatar_mimetypes
         self.replicate_user_profiles_to = (
             hs.config.registration.replicate_user_profiles_to
         )
+
+        self.max_avatar_size = hs.config.server.max_avatar_size
+        self.allowed_avatar_mimetypes = hs.config.server.allowed_avatar_mimetypes
+
+        self.server_name = hs.config.server.server_name
 
         if hs.config.worker.run_background_tasks:
             self.clock.looping_call(
@@ -441,43 +445,12 @@ class ProfileHandler:
                 400, "Avatar URL is too long (max %i)" % (MAX_AVATAR_URL_LEN,)
             )
 
+        if not await self.check_avatar_size_and_mime_type(new_avatar_url):
+            raise SynapseError(403, "This avatar is not allowed", Codes.FORBIDDEN)
+
         avatar_url_to_set: Optional[str] = new_avatar_url
         if new_avatar_url == "":
             avatar_url_to_set = None
-
-        # Enforce a max avatar size if one is defined
-        if avatar_url_to_set and (
-            self.max_avatar_size or self.allowed_avatar_mimetypes
-        ):
-            media_id = self._validate_and_parse_media_id_from_avatar_url(
-                avatar_url_to_set
-            )
-
-            # Check that this media exists locally
-            media_info = await self.store.get_local_media(media_id)
-            if not media_info:
-                raise SynapseError(
-                    400, "Unknown media id supplied", errcode=Codes.NOT_FOUND
-                )
-
-            # Ensure avatar does not exceed max allowed avatar size
-            media_size = media_info["media_length"]
-            if self.max_avatar_size and media_size > self.max_avatar_size:
-                raise SynapseError(
-                    400,
-                    "Avatars must be less than %s bytes in size"
-                    % (self.max_avatar_size,),
-                    errcode=Codes.TOO_LARGE,
-                )
-
-            # Ensure the avatar's file type is allowed
-            if (
-                self.allowed_avatar_mimetypes
-                and media_info["media_type"] not in self.allowed_avatar_mimetypes
-            ):
-                raise SynapseError(
-                    400, "Avatar file type '%s' not allowed" % media_info["media_type"]
-                )
 
         # Same like set_displayname
         if by_admin:
@@ -503,22 +476,65 @@ class ProfileHandler:
 
         await self._update_join_states(requester, target_user)
 
-        # start a profile replication push
-        run_in_background(self._replicate_profiles)
-
-    def _validate_and_parse_media_id_from_avatar_url(self, mxc: str) -> str:
-        """Validate and parse a provided avatar url and return the local media id
+    @cached()
+    async def check_avatar_size_and_mime_type(self, mxc: str) -> bool:
+        """Check that the size and content type of the avatar at the given MXC URI are
+        within the configured limits.
 
         Args:
-            mxc: A mxc URL
+            mxc: The MXC URI at which the avatar can be found.
 
         Returns:
-            The ID of the media
+             A boolean indicating whether the file can be allowed to be set as an avatar.
         """
-        avatar_pieces = mxc.split("/")
-        if len(avatar_pieces) != 4 or avatar_pieces[0] != "mxc:":
-            raise SynapseError(400, "Invalid avatar URL '%s' supplied" % mxc)
-        return avatar_pieces[-1]
+        if not self.max_avatar_size and not self.allowed_avatar_mimetypes:
+            return True
+
+        server_name, _, media_id = parse_and_validate_mxc_uri(mxc)
+
+        if server_name == self.server_name:
+            media_info = await self.store.get_local_media(media_id)
+        else:
+            media_info = await self.store.get_cached_remote_media(server_name, media_id)
+
+        if media_info is None:
+            # Both configuration options need to access the file's metadata, and
+            # retrieving remote avatars just for this becomes a bit of a faff, especially
+            # if e.g. the file is too big. It's also generally safe to assume most files
+            # used as avatar are uploaded locally, or if the upload didn't happen as part
+            # of a PUT request on /avatar_url that the file was at least previewed by the
+            # user locally (and therefore downloaded to the remote media cache).
+            logger.warning("Forbidding avatar change to %s: avatar not on server", mxc)
+            return False
+
+        if self.max_avatar_size:
+            # Ensure avatar does not exceed max allowed avatar size
+            if media_info["media_length"] > self.max_avatar_size:
+                logger.warning(
+                    "Forbidding avatar change to %s: %d bytes is above the allowed size "
+                    "limit",
+                    mxc,
+                    media_info["media_length"],
+                )
+                return False
+
+        if self.allowed_avatar_mimetypes:
+            # Ensure the avatar's file type is allowed
+            if (
+                self.allowed_avatar_mimetypes
+                and media_info["media_type"] not in self.allowed_avatar_mimetypes
+            ):
+                logger.warning(
+                    "Forbidding avatar change to %s: mimetype %s not allowed",
+                    mxc,
+                    media_info["media_type"],
+                )
+                return False
+
+        return True
+
+        # start a profile replication push
+        run_in_background(self._replicate_profiles)
 
     async def on_profile_query(self, args: JsonDict) -> JsonDict:
         """Handles federation profile query requests."""
