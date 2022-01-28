@@ -476,6 +476,9 @@ class ProfileHandler:
 
         await self._update_join_states(requester, target_user)
 
+        # start a profile replication push
+        run_in_background(self._replicate_profiles)
+
     @cached()
     async def check_avatar_size_and_mime_type(self, mxc: str) -> bool:
         """Check that the size and content type of the avatar at the given MXC URI are
@@ -532,9 +535,6 @@ class ProfileHandler:
                 return False
 
         return True
-
-        # start a profile replication push
-        run_in_background(self._replicate_profiles)
 
     async def on_profile_query(self, args: JsonDict) -> JsonDict:
         """Handles federation profile query requests."""
