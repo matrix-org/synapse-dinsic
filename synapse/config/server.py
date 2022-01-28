@@ -1185,6 +1185,11 @@ class ServerConfig(Config):
         #
         #allow_per_room_profiles: false
 
+        # Whether to show the users on this homeserver in the user directory. Defaults to
+        # 'true'.
+        #
+        #show_users_in_user_directory: false
+
         # The largest allowed file size for a user avatar. Defaults to no restriction.
         #
         # Note that user avatar changes will not work if this is set without
