@@ -615,13 +615,24 @@ class FederationUserInfoServlet(BaseFederationServlet):
     PATH = "/users/info"
     PREFIX = FEDERATION_UNSTABLE_PREFIX
 
-    def __init__(self, hs, authenticator, ratelimiter, server_name):
+    def __init__(
+        self,
+        hs: "HomeServer",
+        authenticator: Authenticator,
+        ratelimiter: FederationRateLimiter,
+        server_name: str,
+    ):
         super(FederationUserInfoServlet, self).__init__(
             hs, authenticator, ratelimiter, server_name
         )
         self._store = hs.get_datastore()
 
-    async def on_POST(self, origin, content, query):
+    async def on_POST(
+        self,
+        origin: Optional[str],
+        content: JsonDict,
+        query: Dict[bytes, List[bytes]],
+    ) -> Tuple[int, JsonDict]:
         assert_params_in_dict(content, required=["user_ids"])
 
         user_ids = content.get("user_ids", [])
