@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import argparse
 import itertools
 import logging
 import os.path
@@ -27,6 +28,7 @@ from netaddr import AddrFormatError, IPNetwork, IPSet
 from twisted.conch.ssh.keys import Key
 
 from synapse.api.room_versions import KNOWN_ROOM_VERSIONS
+from synapse.types import JsonDict
 from synapse.util.module_loader import load_module
 from synapse.util.stringutils import parse_and_validate_server_name
 
@@ -198,8 +200,8 @@ class HttpListenerConfig:
     """Object describing the http-specific parts of the config of a listener"""
 
     x_forwarded: bool = False
-    resources: List[HttpResourceConfig] = attr.ib(factory=list)
-    additional_resources: Dict[str, dict] = attr.ib(factory=dict)
+    resources: List[HttpResourceConfig] = attr.Factory(list)
+    additional_resources: Dict[str, dict] = attr.Factory(dict)
     tag: Optional[str] = None
 
 
@@ -257,7 +259,6 @@ class ServerConfig(Config):
             raise ConfigError(str(e))
 
         self.pid_file = self.abspath(config.get("pid_file"))
-        self.web_client_location = config.get("web_client_location", None)
         self.soft_file_limit = config.get("soft_file_limit", 0)
         self.daemonize = config.get("daemonize")
         self.print_pidfile = config.get("print_pidfile")
@@ -523,8 +524,17 @@ class ServerConfig(Config):
                     l2.append(listener)
             self.listeners = l2
 
-        if not self.web_client_location:
-            _warn_if_webclient_configured(self.listeners)
+        self.web_client_location = config.get("web_client_location", None)
+        self.web_client_location_is_redirect = self.web_client_location and (
+            self.web_client_location.startswith("http://")
+            or self.web_client_location.startswith("https://")
+        )
+        # A non-HTTP(S) web client location is deprecated.
+        if self.web_client_location and not self.web_client_location_is_redirect:
+            logger.warning(NO_MORE_NONE_HTTP_WEB_CLIENT_LOCATION_WARNING)
+
+        # Warn if webclient is configured for a worker.
+        _warn_if_webclient_configured(self.listeners)
 
         self.gc_thresholds = read_gc_thresholds(config.get("gc_thresholds", None))
         self.gc_seconds = self.read_gc_intervals(config.get("gc_min_interval", None))
@@ -810,13 +820,7 @@ class ServerConfig(Config):
         #
         pid_file: %(pid_file)s
 
-        # The absolute URL to the web client which /_matrix/client will redirect
-        # to if 'webclient' is configured under the 'listeners' configuration.
-        #
-        # This option can be also set to the filesystem path to the web client
-        # which will be served at /_matrix/client/ if 'webclient' is configured
-        # under the 'listeners' configuration, however this is a security risk:
-        # https://github.com/matrix-org/synapse#security-note
+        # The absolute URL to the web client which / will redirect to.
         #
         #web_client_location: https://riot.example.com/
 
@@ -900,7 +904,7 @@ class ServerConfig(Config):
         # The default room version for newly created rooms.
         #
         # Known room versions are listed here:
-        # https://matrix.org/docs/spec/#complete-list-of-room-versions
+        # https://spec.matrix.org/latest/rooms/#complete-list-of-room-versions
         #
         # For example, for room version 1, default_room_version should be set
         # to "1".
@@ -1027,8 +1031,6 @@ class ServerConfig(Config):
         #
         #   static: static resources under synapse/static (/_matrix/static). (Mostly
         #       useful for 'fallback authentication'.)
-        #
-        #   webclient: A web client. Requires web_client_location to be set.
         #
         listeners:
           # TLS-enabled listener: for when matrix traffic is sent directly to synapse.
@@ -1261,7 +1263,7 @@ class ServerConfig(Config):
             % locals()
         )
 
-    def read_arguments(self, args):
+    def read_arguments(self, args: argparse.Namespace) -> None:
         if args.manhole is not None:
             self.manhole = args.manhole
         if args.daemonize is not None:
@@ -1270,7 +1272,7 @@ class ServerConfig(Config):
             self.print_pidfile = args.print_pidfile
 
     @staticmethod
-    def add_arguments(parser):
+    def add_arguments(parser: argparse.ArgumentParser) -> None:
         server_group = parser.add_argument_group("server")
         server_group.add_argument(
             "-D",
@@ -1293,7 +1295,7 @@ class ServerConfig(Config):
             help="Turn on the twisted telnet manhole service on the given port.",
         )
 
-    def read_gc_intervals(self, durations) -> Optional[Tuple[float, float, float]]:
+    def read_gc_intervals(self, durations: Any) -> Optional[Tuple[float, float, float]]:
         """Reads the three durations for the GC min interval option, returning seconds."""
         if durations is None:
             return None
@@ -1312,14 +1314,16 @@ class ServerConfig(Config):
             )
 
 
-def is_threepid_reserved(reserved_threepids, threepid):
+def is_threepid_reserved(
+    reserved_threepids: List[JsonDict], threepid: JsonDict
+) -> bool:
     """Check the threepid against the reserved threepid config
     Args:
-        reserved_threepids([dict]) - list of reserved threepids
-        threepid(dict) - The threepid to test for
+        reserved_threepids: List of reserved threepids
+        threepid: The threepid to test for
 
     Returns:
-        boolean Is the threepid undertest reserved_user
+        Is the threepid undertest reserved_user
     """
 
     for tp in reserved_threepids:
@@ -1328,7 +1332,9 @@ def is_threepid_reserved(reserved_threepids, threepid):
     return False
 
 
-def read_gc_thresholds(thresholds):
+def read_gc_thresholds(
+    thresholds: Optional[List[Any]],
+) -> Optional[Tuple[int, int, int]]:
     """Reads the three integer thresholds for garbage collection. Ensures that
     the thresholds are integers if thresholds are supplied.
     """
@@ -1381,9 +1387,15 @@ def parse_listener_def(listener: Any) -> ListenerConfig:
     return ListenerConfig(port, bind_addresses, listener_type, tls, http_config)
 
 
+NO_MORE_NONE_HTTP_WEB_CLIENT_LOCATION_WARNING = """
+Synapse no longer supports serving a web client. To remove this warning,
+configure 'web_client_location' with an HTTP(S) URL.
+"""
+
+
 NO_MORE_WEB_CLIENT_WARNING = """
-Synapse no longer includes a web client. To enable a web client, configure
-web_client_location. To remove this warning, remove 'webclient' from the 'listeners'
+Synapse no longer includes a web client. To redirect the root resource to a web client, configure
+'web_client_location'. To remove this warning, remove 'webclient' from the 'listeners'
 configuration.
 """
 

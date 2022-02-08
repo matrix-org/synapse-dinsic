@@ -14,6 +14,7 @@
 # limitations under the License.
 import logging
 import urllib.parse
+from http import HTTPStatus
 from io import BytesIO
 from typing import (
     TYPE_CHECKING,
@@ -280,7 +281,9 @@ class BlacklistingAgentWrapper(Agent):
                 ip_address, self._ip_whitelist, self._ip_blacklist
             ):
                 logger.info("Blocking access to %s due to blacklist" % (ip_address,))
-                e = SynapseError(403, "IP address blocked by IP blacklist entry")
+                e = SynapseError(
+                    HTTPStatus.FORBIDDEN, "IP address blocked by IP blacklist entry"
+                )
                 return defer.fail(Failure(e))
 
         return self._agent.request(
@@ -585,7 +588,7 @@ class SimpleHttpClient:
         if headers:
             actual_headers.update(headers)  # type: ignore
 
-        body = await self.get_raw(uri, args, headers=headers)
+        body = await self.get_raw(uri, args, headers=actual_headers)
         return json_decoder.decode(body.decode("utf-8"))
 
     async def put_json(
@@ -719,24 +722,37 @@ class SimpleHttpClient:
 
         if response.code > 299:
             logger.warning("Got %d when downloading %s" % (response.code, url))
-            raise SynapseError(502, "Got error %d" % (response.code,), Codes.UNKNOWN)
+            raise SynapseError(
+                HTTPStatus.BAD_GATEWAY, "Got error %d" % (response.code,), Codes.UNKNOWN
+            )
 
         # TODO: if our Content-Type is HTML or something, just read the first
         # N bytes into RAM rather than saving it all to disk only to read it
         # straight back in again
 
         try:
-            length = await make_deferred_yieldable(
-                read_body_with_max_size(response, output_stream, max_size)
-            )
+            d = read_body_with_max_size(response, output_stream, max_size)
+
+            # Ensure that the body is not read forever.
+            d = timeout_deferred(d, 30, self.hs.get_reactor())
+
+            length = await make_deferred_yieldable(d)
         except BodyExceededMaxSize:
             raise SynapseError(
-                502,
+                HTTPStatus.BAD_GATEWAY,
                 "Requested file is too large > %r bytes" % (max_size,),
                 Codes.TOO_LARGE,
             )
+        except defer.TimeoutError:
+            raise SynapseError(
+                HTTPStatus.BAD_GATEWAY,
+                "Requested file took too long to download",
+                Codes.TOO_LARGE,
+            )
         except Exception as e:
-            raise SynapseError(502, ("Failed to download remote body: %s" % e)) from e
+            raise SynapseError(
+                HTTPStatus.BAD_GATEWAY, ("Failed to download remote body: %s" % e)
+            ) from e
 
         return (
             length,

@@ -13,7 +13,6 @@
 # limitations under the License.
 
 import logging
-from collections import namedtuple
 from typing import (
     Awaitable,
     Callable,
@@ -41,10 +40,15 @@ from synapse.handlers.presence import format_user_presence_state
 from synapse.logging import issue9533_logger
 from synapse.logging.context import PreserveLoggingContext
 from synapse.logging.opentracing import log_kv, start_active_span
-from synapse.logging.utils import log_function
 from synapse.metrics import LaterGauge
 from synapse.streams.config import PaginationConfig
-from synapse.types import PersistedEventPosition, RoomStreamToken, StreamToken, UserID
+from synapse.types import (
+    JsonDict,
+    PersistedEventPosition,
+    RoomStreamToken,
+    StreamToken,
+    UserID,
+)
 from synapse.util.async_helpers import ObservableDeferred, timeout_deferred
 from synapse.util.metrics import Measure
 from synapse.visibility import filter_events_for_client
@@ -178,20 +182,25 @@ class _NotifierUserStream:
             return _NotificationListener(self.notify_deferred.observe())
 
 
-class EventStreamResult(namedtuple("EventStreamResult", ("events", "tokens"))):
+@attr.s(slots=True, frozen=True, auto_attribs=True)
+class EventStreamResult:
+    events: List[Union[JsonDict, EventBase]]
+    start_token: StreamToken
+    end_token: StreamToken
+
     def __bool__(self):
         return bool(self.events)
 
 
-@attr.s(slots=True, frozen=True)
+@attr.s(slots=True, frozen=True, auto_attribs=True)
 class _PendingRoomEventEntry:
-    event_pos = attr.ib(type=PersistedEventPosition)
-    extra_users = attr.ib(type=Collection[UserID])
+    event_pos: PersistedEventPosition
+    extra_users: Collection[UserID]
 
-    room_id = attr.ib(type=str)
-    type = attr.ib(type=str)
-    state_key = attr.ib(type=Optional[str])
-    membership = attr.ib(type=Optional[str])
+    room_id: str
+    type: str
+    state_key: Optional[str]
+    membership: Optional[str]
 
 
 class Notifier:
@@ -582,9 +591,12 @@ class Notifier:
             before_token: StreamToken, after_token: StreamToken
         ) -> EventStreamResult:
             if after_token == before_token:
-                return EventStreamResult([], (from_token, from_token))
+                return EventStreamResult([], from_token, from_token)
 
-            events: List[EventBase] = []
+            # The events fetched from each source are a JsonDict, EventBase, or
+            # UserPresenceState, but see below for UserPresenceState being
+            # converted to JsonDict.
+            events: List[Union[JsonDict, EventBase]] = []
             end_token = from_token
 
             for name, source in self.event_sources.sources.get_sources():
@@ -623,7 +635,7 @@ class Notifier:
                 events.extend(new_events)
                 end_token = end_token.copy_and_replace(keyname, new_key)
 
-            return EventStreamResult(events, (from_token, end_token))
+            return EventStreamResult(events, from_token, end_token)
 
         user_id_for_stream = user.to_string()
         if is_peeking:
@@ -673,7 +685,6 @@ class Notifier:
         else:
             return False
 
-    @log_function
     def remove_expired_streams(self) -> None:
         time_now_ms = self.clock.time_msec()
         expired_streams = []
@@ -687,7 +698,6 @@ class Notifier:
         for expired_stream in expired_streams:
             expired_stream.remove(self)
 
-    @log_function
     def _register_with_keys(self, user_stream: _NotifierUserStream):
         self.user_to_user_stream[user_stream.user_id] = user_stream
 

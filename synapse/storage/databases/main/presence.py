@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING, Dict, Iterable, List, Tuple
 from synapse.api.presence import PresenceState, UserPresenceState
 from synapse.replication.tcp.streams import PresenceStream
 from synapse.storage._base import SQLBaseStore, make_in_list_sql_clause
-from synapse.storage.database import DatabasePool
+from synapse.storage.database import DatabasePool, LoggingDatabaseConnection
 from synapse.storage.engines import PostgresEngine
 from synapse.storage.types import Connection
 from synapse.storage.util.id_generators import MultiWriterIdGenerator, StreamIdGenerator
@@ -33,7 +33,7 @@ class PresenceBackgroundUpdateStore(SQLBaseStore):
     def __init__(
         self,
         database: DatabasePool,
-        db_conn: Connection,
+        db_conn: LoggingDatabaseConnection,
         hs: "HomeServer",
     ):
         super().__init__(database, db_conn, hs)
@@ -52,7 +52,7 @@ class PresenceStore(PresenceBackgroundUpdateStore):
     def __init__(
         self,
         database: DatabasePool,
-        db_conn: Connection,
+        db_conn: LoggingDatabaseConnection,
         hs: "HomeServer",
     ):
         super().__init__(database, db_conn, hs)
@@ -129,18 +129,29 @@ class PresenceStore(PresenceBackgroundUpdateStore):
         self.db_pool.simple_insert_many_txn(
             txn,
             table="presence_stream",
+            keys=(
+                "stream_id",
+                "user_id",
+                "state",
+                "last_active_ts",
+                "last_federation_update_ts",
+                "last_user_sync_ts",
+                "status_msg",
+                "currently_active",
+                "instance_name",
+            ),
             values=[
-                {
-                    "stream_id": stream_id,
-                    "user_id": state.user_id,
-                    "state": state.state,
-                    "last_active_ts": state.last_active_ts,
-                    "last_federation_update_ts": state.last_federation_update_ts,
-                    "last_user_sync_ts": state.last_user_sync_ts,
-                    "status_msg": state.status_msg,
-                    "currently_active": state.currently_active,
-                    "instance_name": self._instance_name,
-                }
+                (
+                    stream_id,
+                    state.user_id,
+                    state.state,
+                    state.last_active_ts,
+                    state.last_federation_update_ts,
+                    state.last_user_sync_ts,
+                    state.status_msg,
+                    state.currently_active,
+                    self._instance_name,
+                )
                 for stream_id, state in zip(stream_orderings, presence_states)
             ],
         )
@@ -269,6 +280,7 @@ class PresenceStore(PresenceBackgroundUpdateStore):
         """
         # Add user entries to the table, updating the presence_stream_id column if the user already
         # exists in the table.
+        presence_stream_id = self._presence_id_gen.get_current_token()
         await self.db_pool.simple_upsert_many(
             table="users_to_send_full_presence_to",
             key_names=("user_id",),
@@ -279,9 +291,7 @@ class PresenceStore(PresenceBackgroundUpdateStore):
             # devices at different times, each device will receive full presence once - when
             # the presence stream ID in their sync token is less than the one in the table
             # for their user ID.
-            value_values=(
-                (self._presence_id_gen.get_current_token(),) for _ in user_ids
-            ),
+            value_values=[(presence_stream_id,) for _ in user_ids],
             desc="add_users_to_send_full_presence_to",
         )
 

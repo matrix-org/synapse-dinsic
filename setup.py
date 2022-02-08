@@ -107,6 +107,7 @@ CONDITIONAL_REQUIREMENTS["mypy"] = [
     "mypy-zope==0.3.2",
     "types-bleach>=4.1.0",
     "types-jsonschema>=3.2.0",
+    "types-opentracing>=2.4.2",
     "types-Pillow>=8.3.4",
     "types-pyOpenSSL>=20.0.7",
     "types-PyYAML>=5.4.10",
@@ -149,13 +150,18 @@ setup(
     zip_safe=False,
     long_description=long_description,
     long_description_content_type="text/x-rst",
-    python_requires="~=3.6",
+    python_requires="~=3.7",
+    entry_points={
+        "console_scripts": [
+            "synapse_homeserver = synapse.app.homeserver:main",
+            "synapse_worker = synapse.app.generic_worker:main",
+        ]
+    },
     classifiers=[
         "Development Status :: 5 - Production/Stable",
         "Topic :: Communications :: Chat",
         "License :: OSI Approved :: Apache Software License",
         "Programming Language :: Python :: 3 :: Only",
-        "Programming Language :: Python :: 3.6",
         "Programming Language :: Python :: 3.7",
         "Programming Language :: Python :: 3.8",
         "Programming Language :: Python :: 3.9",

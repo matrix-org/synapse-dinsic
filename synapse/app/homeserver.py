@@ -131,9 +131,18 @@ class SynapseHomeServer(HomeServer):
         resources.update(self._module_web_resources)
         self._module_web_resources_consumed = True
 
-        # try to find something useful to redirect '/' to
-        if WEB_CLIENT_PREFIX in resources:
-            root_resource: Resource = RootOptionsRedirectResource(WEB_CLIENT_PREFIX)
+        # Try to find something useful to serve at '/':
+        #
+        # 1. Redirect to the web client if it is an HTTP(S) URL.
+        # 2. Redirect to the web client served via Synapse.
+        # 3. Redirect to the static "Synapse is running" page.
+        # 4. Do not redirect and use a blank resource.
+        if self.config.server.web_client_location_is_redirect:
+            root_resource: Resource = RootOptionsRedirectResource(
+                self.config.server.web_client_location
+            )
+        elif WEB_CLIENT_PREFIX in resources:
+            root_resource = RootOptionsRedirectResource(WEB_CLIENT_PREFIX)
         elif STATIC_PREFIX in resources:
             root_resource = RootOptionsRedirectResource(STATIC_PREFIX)
         else:
@@ -194,6 +203,7 @@ class SynapseHomeServer(HomeServer):
                 {
                     "/_matrix/client/api/v1": client_resource,
                     "/_matrix/client/r0": client_resource,
+                    "/_matrix/client/v1": client_resource,
                     "/_matrix/client/v3": client_resource,
                     "/_matrix/client/unstable": client_resource,
                     "/_matrix/client/v2_alpha": client_resource,
@@ -261,15 +271,15 @@ class SynapseHomeServer(HomeServer):
             resources[SERVER_KEY_V2_PREFIX] = KeyApiV2Resource(self)
 
         if name == "webclient":
+            # webclient listeners are deprecated as of Synapse v1.51.0, remove it
+            # in > v1.53.0.
             webclient_loc = self.config.server.web_client_location
 
             if webclient_loc is None:
                 logger.warning(
                     "Not enabling webclient resource, as web_client_location is unset."
                 )
-            elif webclient_loc.startswith("http://") or webclient_loc.startswith(
-                "https://"
-            ):
+            elif self.config.server.web_client_location_is_redirect:
                 resources[WEB_CLIENT_PREFIX] = RootRedirect(webclient_loc)
             else:
                 logger.warning(
@@ -356,6 +366,13 @@ def setup(config_options: List[str]) -> SynapseHomeServer:
         # If a config isn't returned, and an exception isn't raised, we're just
         # generating config files and shouldn't try to continue.
         sys.exit(0)
+
+    if config.worker.worker_app:
+        raise ConfigError(
+            "You have specified `worker_app` in the config but are attempting to start a non-worker "
+            "instance. Please use `python -m synapse.app.generic_worker` instead (or remove the option if this is the main process)."
+        )
+        sys.exit(1)
 
     events.USE_FROZEN_DICTS = config.server.use_frozen_dicts
     synapse.util.caches.TRACK_MEMORY_USAGE = config.caches.track_memory_usage

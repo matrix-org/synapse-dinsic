@@ -14,7 +14,7 @@
 # limitations under the License.
 import heapq
 from collections.abc import Iterable
-from typing import TYPE_CHECKING, List, Optional, Tuple, Type
+from typing import TYPE_CHECKING, Optional, Tuple, Type
 
 import attr
 
@@ -50,12 +50,12 @@ data part are:
 """
 
 
-@attr.s(slots=True, frozen=True)
+@attr.s(slots=True, frozen=True, auto_attribs=True)
 class EventsStreamRow:
     """A parsed row from the events replication stream"""
 
-    type = attr.ib()  # str: the TypeId of one of the *EventsStreamRows
-    data = attr.ib()  # BaseEventsStreamRow
+    type: str  # the TypeId of one of the *EventsStreamRows
+    data: "BaseEventsStreamRow"
 
 
 class BaseEventsStreamRow:
@@ -79,28 +79,28 @@ class BaseEventsStreamRow:
         return cls(*data)
 
 
-@attr.s(slots=True, frozen=True)
+@attr.s(slots=True, frozen=True, auto_attribs=True)
 class EventsStreamEventRow(BaseEventsStreamRow):
     TypeId = "ev"
 
-    event_id = attr.ib(type=str)
-    room_id = attr.ib(type=str)
-    type = attr.ib(type=str)
-    state_key = attr.ib(type=Optional[str])
-    redacts = attr.ib(type=Optional[str])
-    relates_to = attr.ib(type=Optional[str])
-    membership = attr.ib(type=Optional[str])
-    rejected = attr.ib(type=bool)
+    event_id: str
+    room_id: str
+    type: str
+    state_key: Optional[str]
+    redacts: Optional[str]
+    relates_to: Optional[str]
+    membership: Optional[str]
+    rejected: bool
 
 
-@attr.s(slots=True, frozen=True)
+@attr.s(slots=True, frozen=True, auto_attribs=True)
 class EventsStreamCurrentStateRow(BaseEventsStreamRow):
     TypeId = "state"
 
-    room_id = attr.ib()  # str
-    type = attr.ib()  # str
-    state_key = attr.ib()  # str
-    event_id = attr.ib()  # str, optional
+    room_id: str
+    type: str
+    state_key: str
+    event_id: Optional[str]
 
 
 _EventRows: Tuple[Type[BaseEventsStreamRow], ...] = (
@@ -157,7 +157,7 @@ class EventsStream(Stream):
 
         # now we fetch up to that many rows from the events table
 
-        event_rows: List[Tuple] = await self._store.get_all_new_forward_event_rows(
+        event_rows = await self._store.get_all_new_forward_event_rows(
             instance_name, from_token, current_token, target_row_count
         )
 
@@ -191,7 +191,7 @@ class EventsStream(Stream):
         # finally, fetch the ex-outliers rows. We assume there are few enough of these
         # not to bother with the limit.
 
-        ex_outliers_rows: List[Tuple] = await self._store.get_ex_outlier_stream_rows(
+        ex_outliers_rows = await self._store.get_ex_outlier_stream_rows(
             instance_name, from_token, upper_limit
         )
 

@@ -12,7 +12,17 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 import logging
-from typing import Dict, List, Mapping, Optional, Sequence, Tuple, Type, Union
+from typing import (
+    TYPE_CHECKING,
+    Dict,
+    List,
+    Mapping,
+    Optional,
+    Sequence,
+    Tuple,
+    Type,
+    Union,
+)
 
 from typing_extensions import Literal
 
@@ -31,12 +41,15 @@ from synapse.http.servlet import (
     parse_string_from_args,
     parse_strings_from_args,
 )
-from synapse.server import HomeServer
 from synapse.types import JsonDict
 from synapse.util.ratelimitutils import FederationRateLimiter
 from synapse.util.versionstring import get_version_string
 
+if TYPE_CHECKING:
+    from synapse.server import HomeServer
+
 logger = logging.getLogger(__name__)
+issue_8631_logger = logging.getLogger("synapse.8631_debug")
 
 
 class BaseFederationServerServlet(BaseFederationServlet):
@@ -47,7 +60,7 @@ class BaseFederationServerServlet(BaseFederationServlet):
 
     def __init__(
         self,
-        hs: HomeServer,
+        hs: "HomeServer",
         authenticator: Authenticator,
         ratelimiter: FederationRateLimiter,
         server_name: str,
@@ -95,6 +108,20 @@ class FederationSendServlet(BaseFederationServerServlet):
                 len(transaction_data.get("pdus", [])),
                 len(transaction_data.get("edus", [])),
             )
+
+            if issue_8631_logger.isEnabledFor(logging.DEBUG):
+                DEVICE_UPDATE_EDUS = {"m.device_list_update", "m.signing_key_update"}
+                device_list_updates = [
+                    edu.content
+                    for edu in transaction_data.get("edus", [])
+                    if edu.edu_type in DEVICE_UPDATE_EDUS
+                ]
+                if device_list_updates:
+                    issue_8631_logger.debug(
+                        "received transaction [%s] including device list updates: %s",
+                        transaction_id,
+                        device_list_updates,
+                    )
 
         except Exception as e:
             logger.exception(e)
@@ -173,6 +200,46 @@ class FederationBackfillServlet(BaseFederationServerServlet):
             return 400, {"error": "Did not include limit param"}
 
         return await self.handler.on_backfill_request(origin, room_id, versions, limit)
+
+
+class FederationTimestampLookupServlet(BaseFederationServerServlet):
+    """
+    API endpoint to fetch the `event_id` of the closest event to the given
+    timestamp (`ts` query parameter) in the given direction (`dir` query
+    parameter).
+
+    Useful for other homeservers when they're unable to find an event locally.
+
+    `ts` is a timestamp in milliseconds where we will find the closest event in
+    the given direction.
+
+    `dir` can be `f` or `b` to indicate forwards and backwards in time from the
+    given timestamp.
+
+    GET /_matrix/federation/unstable/org.matrix.msc3030/timestamp_to_event/<roomID>?ts=<timestamp>&dir=<direction>
+    {
+        "event_id": ...
+    }
+    """
+
+    PATH = "/timestamp_to_event/(?P<room_id>[^/]*)/?"
+    PREFIX = FEDERATION_UNSTABLE_PREFIX + "/org.matrix.msc3030"
+
+    async def on_GET(
+        self,
+        origin: str,
+        content: Literal[None],
+        query: Dict[bytes, List[bytes]],
+        room_id: str,
+    ) -> Tuple[int, JsonDict]:
+        timestamp = parse_integer_from_args(query, "ts", required=True)
+        direction = parse_string_from_args(
+            query, "dir", default="f", allowed_values=["f", "b"], required=True
+        )
+
+        return await self.handler.on_timestamp_to_event_request(
+            origin, room_id, timestamp, direction
+        )
 
 
 class FederationQueryServlet(BaseFederationServerServlet):
@@ -548,13 +615,24 @@ class FederationUserInfoServlet(BaseFederationServlet):
     PATH = "/users/info"
     PREFIX = FEDERATION_UNSTABLE_PREFIX
 
-    def __init__(self, hs, authenticator, ratelimiter, server_name):
+    def __init__(
+        self,
+        hs: "HomeServer",
+        authenticator: Authenticator,
+        ratelimiter: FederationRateLimiter,
+        server_name: str,
+    ):
         super(FederationUserInfoServlet, self).__init__(
             hs, authenticator, ratelimiter, server_name
         )
         self._store = hs.get_datastore()
 
-    async def on_POST(self, origin, content, query):
+    async def on_POST(
+        self,
+        origin: Optional[str],
+        content: JsonDict,
+        query: Dict[bytes, List[bytes]],
+    ) -> Tuple[int, JsonDict]:
         assert_params_in_dict(content, required=["user_ids"])
 
         user_ids = content.get("user_ids", [])
@@ -593,7 +671,7 @@ class FederationSpaceSummaryServlet(BaseFederationServlet):
 
     def __init__(
         self,
-        hs: HomeServer,
+        hs: "HomeServer",
         authenticator: Authenticator,
         ratelimiter: FederationRateLimiter,
         server_name: str,
@@ -663,12 +741,11 @@ class FederationSpaceSummaryServlet(BaseFederationServlet):
 
 
 class FederationRoomHierarchyServlet(BaseFederationServlet):
-    PREFIX = FEDERATION_UNSTABLE_PREFIX + "/org.matrix.msc2946"
     PATH = "/hierarchy/(?P<room_id>[^/]*)"
 
     def __init__(
         self,
-        hs: HomeServer,
+        hs: "HomeServer",
         authenticator: Authenticator,
         ratelimiter: FederationRateLimiter,
         server_name: str,
@@ -689,6 +766,10 @@ class FederationRoomHierarchyServlet(BaseFederationServlet):
         )
 
 
+class FederationRoomHierarchyUnstableServlet(FederationRoomHierarchyServlet):
+    PREFIX = FEDERATION_UNSTABLE_PREFIX + "/org.matrix.msc2946"
+
+
 class RoomComplexityServlet(BaseFederationServlet):
     """
     Indicates to other servers how complex (and therefore likely
@@ -700,7 +781,7 @@ class RoomComplexityServlet(BaseFederationServlet):
 
     def __init__(
         self,
-        hs: HomeServer,
+        hs: "HomeServer",
         authenticator: Authenticator,
         ratelimiter: FederationRateLimiter,
         server_name: str,
@@ -732,6 +813,7 @@ FEDERATION_SERVLET_CLASSES: Tuple[Type[BaseFederationServlet], ...] = (
     FederationStateV1Servlet,
     FederationStateIdsServlet,
     FederationBackfillServlet,
+    FederationTimestampLookupServlet,
     FederationQueryServlet,
     FederationMakeJoinServlet,
     FederationMakeLeaveServlet,
@@ -754,6 +836,7 @@ FEDERATION_SERVLET_CLASSES: Tuple[Type[BaseFederationServlet], ...] = (
     FederationUserInfoServlet,
     FederationSpaceSummaryServlet,
     FederationRoomHierarchyServlet,
+    FederationRoomHierarchyUnstableServlet,
     FederationV1SendKnockServlet,
     FederationMakeKnockServlet,
 )

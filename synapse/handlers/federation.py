@@ -51,7 +51,6 @@ from synapse.logging.context import (
     preserve_fn,
     run_in_background,
 )
-from synapse.logging.utils import log_function
 from synapse.replication.http.federation import (
     ReplicationCleanRoomRestServlet,
     ReplicationStoreRoomOnOutlierMembershipRestServlet,
@@ -66,6 +65,37 @@ if TYPE_CHECKING:
     from synapse.server import HomeServer
 
 logger = logging.getLogger(__name__)
+
+
+def get_domains_from_state(state: StateMap[EventBase]) -> List[Tuple[str, int]]:
+    """Get joined domains from state
+
+    Args:
+        state: State map from type/state key to event.
+
+    Returns:
+        Returns a list of servers with the lowest depth of their joins.
+            Sorted by lowest depth first.
+    """
+    joined_users = [
+        (state_key, int(event.depth))
+        for (e_type, state_key), event in state.items()
+        if e_type == EventTypes.Member and event.membership == Membership.JOIN
+    ]
+
+    joined_domains: Dict[str, int] = {}
+    for u, d in joined_users:
+        try:
+            dom = get_domain_from_id(u)
+            old_d = joined_domains.get(dom)
+            if old_d:
+                joined_domains[dom] = min(d, old_d)
+            else:
+                joined_domains[dom] = d
+        except Exception:
+            pass
+
+    return sorted(joined_domains.items(), key=lambda d: d[1])
 
 
 class FederationHandler:
@@ -268,36 +298,6 @@ class FederationHandler:
 
         curr_state = await self.state_handler.get_current_state(room_id)
 
-        def get_domains_from_state(state: StateMap[EventBase]) -> List[Tuple[str, int]]:
-            """Get joined domains from state
-
-            Args:
-                state: State map from type/state key to event.
-
-            Returns:
-                Returns a list of servers with the lowest depth of their joins.
-                 Sorted by lowest depth first.
-            """
-            joined_users = [
-                (state_key, int(event.depth))
-                for (e_type, state_key), event in state.items()
-                if e_type == EventTypes.Member and event.membership == Membership.JOIN
-            ]
-
-            joined_domains: Dict[str, int] = {}
-            for u, d in joined_users:
-                try:
-                    dom = get_domain_from_id(u)
-                    old_d = joined_domains.get(dom)
-                    if old_d:
-                        joined_domains[dom] = min(d, old_d)
-                    else:
-                        joined_domains[dom] = d
-                except Exception:
-                    pass
-
-            return sorted(joined_domains.items(), key=lambda d: d[1])
-
         curr_domains = get_domains_from_state(curr_state)
 
         likely_domains = [
@@ -359,31 +359,34 @@ class FederationHandler:
 
         logger.debug("calling resolve_state_groups in _maybe_backfill")
         resolve = preserve_fn(self.state_handler.resolve_state_groups_for_events)
-        states = await make_deferred_yieldable(
+        states_list = await make_deferred_yieldable(
             defer.gatherResults(
                 [resolve(room_id, [e]) for e in event_ids], consumeErrors=True
             )
         )
 
-        # dict[str, dict[tuple, str]], a map from event_id to state map of
-        # event_ids.
-        states = dict(zip(event_ids, [s.state for s in states]))
+        # A map from event_id to state map of event_ids.
+        state_ids: Dict[str, StateMap[str]] = dict(
+            zip(event_ids, [s.state for s in states_list])
+        )
 
         state_map = await self.store.get_events(
-            [e_id for ids in states.values() for e_id in ids.values()],
+            [e_id for ids in state_ids.values() for e_id in ids.values()],
             get_prev_content=False,
         )
-        states = {
+
+        # A map from event_id to state map of events.
+        state_events: Dict[str, StateMap[EventBase]] = {
             key: {
                 k: state_map[e_id]
                 for k, e_id in state_dict.items()
                 if e_id in state_map
             }
-            for key, state_dict in states.items()
+            for key, state_dict in state_ids.items()
         }
 
         for e_id in event_ids:
-            likely_extremeties_domains = get_domains_from_state(states[e_id])
+            likely_extremeties_domains = get_domains_from_state(state_events[e_id])
 
             success = await try_backfill(
                 [
@@ -552,7 +555,6 @@ class FederationHandler:
 
             run_in_background(self._handle_queued_pdus, room_queue)
 
-    @log_function
     async def do_knock(
         self,
         target_hosts: List[str],
@@ -924,7 +926,6 @@ class FederationHandler:
 
         return event
 
-    @log_function
     async def on_make_knock_request(
         self, origin: str, room_id: str, user_id: str
     ) -> EventBase:
@@ -1035,7 +1036,6 @@ class FederationHandler:
         else:
             return []
 
-    @log_function
     async def on_backfill_request(
         self, origin: str, room_id: str, pdu_list: List[str], limit: int
     ) -> List[EventBase]:
@@ -1052,7 +1052,6 @@ class FederationHandler:
 
         return events
 
-    @log_function
     async def get_persisted_pdu(
         self, origin: str, event_id: str
     ) -> Optional[EventBase]:
@@ -1114,7 +1113,6 @@ class FederationHandler:
 
         return missing_events
 
-    @log_function
     async def exchange_third_party_invite(
         self, sender_user_id: str, target_user_id: str, room_id: str, signed: JsonDict
     ) -> None:

@@ -24,15 +24,13 @@ class ExperimentalConfig(Config):
     def read_config(self, config: JsonDict, **kwargs):
         experimental = config.get("experimental_features") or {}
 
-        # Whether to enable experimental MSC1849 (aka relations) support
-        self.msc1849_enabled = config.get("experimental_msc1849_support_enabled", True)
         # MSC3440 (thread relation)
         self.msc3440_enabled: bool = experimental.get("msc3440_enabled", False)
 
         # MSC3026 (busy presence state)
         self.msc3026_enabled: bool = experimental.get("msc3026_enabled", False)
 
-        # MSC2716 (backfill existing history)
+        # MSC2716 (importing historical messages)
         self.msc2716_enabled: bool = experimental.get("msc2716_enabled", False)
 
         # MSC2285 (hidden read receipts)
@@ -46,3 +44,11 @@ class ExperimentalConfig(Config):
 
         # MSC3266 (room summary api)
         self.msc3266_enabled: bool = experimental.get("msc3266_enabled", False)
+
+        # MSC3030 (Jump to date API endpoint)
+        self.msc3030_enabled: bool = experimental.get("msc3030_enabled", False)
+
+        # The portion of MSC3202 which is related to device masquerading.
+        self.msc3202_device_masquerading_enabled: bool = experimental.get(
+            "msc3202_device_masquerading", False
+        )

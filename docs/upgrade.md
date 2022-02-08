@@ -85,6 +85,39 @@ process, for example:
     dpkg -i matrix-synapse-py3_1.3.0+stretch1_amd64.deb
     ```
 
+# Upgrading to v1.52.0
+
+## Twisted security release
+
+During the making of this release, the developers of Twisted have released
+[Twisted 22.1.0](https://github.com/twisted/twisted/releases/tag/twisted-22.1.0), which
+fixes [a security issue](https://github.com/twisted/twisted/security/advisories/GHSA-92x2-jw7w-xvvx)
+within Twisted. We do not believe Synapse to be vulnerable to any security problem caused
+by this issue, though we advise server administrators to update their local version of
+Twisted if they can.
+
+# Upgrading to v1.51.0
+
+## Deprecation of `webclient` listeners and non-HTTP(S) `web_client_location`
+
+Listeners of type  `webclient` are deprecated and scheduled to be removed in
+Synapse v1.53.0.
+
+Similarly, a non-HTTP(S) `web_client_location` configuration is deprecated and
+will become a configuration error in Synapse v1.53.0.
+
+
+# Upgrading to v1.50.0
+
+## Dropping support for old Python and Postgres versions
+
+In line with our [deprecation policy](deprecation_policy.md),
+we've dropped support for Python 3.6 and PostgreSQL 9.6, as they are no
+longer supported upstream.
+
+This release of Synapse requires Python 3.7+ and PostgreSQL 10+.
+
+
 # Upgrading to v1.47.0
 
 ## Removal of old Room Admin API

@@ -28,7 +28,7 @@ if TYPE_CHECKING:
     from synapse.storage.databases.main import DataStore
 
 
-@attr.s(slots=True)
+@attr.s(slots=True, auto_attribs=True)
 class EventContext:
     """
     Holds information relevant to persisting an event
@@ -103,15 +103,15 @@ class EventContext:
             accessed via get_prev_state_ids.
     """
 
-    rejected = attr.ib(default=False, type=Union[bool, str])
-    _state_group = attr.ib(default=None, type=Optional[int])
-    state_group_before_event = attr.ib(default=None, type=Optional[int])
-    prev_group = attr.ib(default=None, type=Optional[int])
-    delta_ids = attr.ib(default=None, type=Optional[StateMap[str]])
-    app_service = attr.ib(default=None, type=Optional[ApplicationService])
+    rejected: Union[bool, str] = False
+    _state_group: Optional[int] = None
+    state_group_before_event: Optional[int] = None
+    prev_group: Optional[int] = None
+    delta_ids: Optional[StateMap[str]] = None
+    app_service: Optional[ApplicationService] = None
 
-    _current_state_ids = attr.ib(default=None, type=Optional[StateMap[str]])
-    _prev_state_ids = attr.ib(default=None, type=Optional[StateMap[str]])
+    _current_state_ids: Optional[StateMap[str]] = None
+    _prev_state_ids: Optional[StateMap[str]] = None
 
     @staticmethod
     def with_state(
@@ -163,7 +163,7 @@ class EventContext:
         return {
             "prev_state_id": prev_state_id,
             "event_type": event.type,
-            "event_state_key": event.state_key if event.is_state() else None,
+            "event_state_key": event.get_state_key(),
             "state_group": self._state_group,
             "state_group_before_event": self.state_group_before_event,
             "rejected": self.rejected,
@@ -322,6 +322,11 @@ class _AsyncEventContextImpl(EventContext):
         attributes by loading from the database.
         """
         if self.state_group is None:
+            # No state group means the event is an outlier. Usually the state_ids dicts are also
+            # pre-set to empty dicts, but they get reset when the context is serialized, so set
+            # them to empty dicts again here.
+            self._current_state_ids = {}
+            self._prev_state_ids = {}
             return
 
         current_state_ids = await self._storage.state.get_state_ids_for_group(

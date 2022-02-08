@@ -32,11 +32,14 @@ if TYPE_CHECKING:
     from synapse.server import HomeServer
 
 from synapse.api.constants import EventTypes, HistoryVisibility, JoinRules
-from synapse.storage.database import DatabasePool, LoggingTransaction
+from synapse.storage.database import (
+    DatabasePool,
+    LoggingDatabaseConnection,
+    LoggingTransaction,
+)
 from synapse.storage.databases.main.state import StateFilter
 from synapse.storage.databases.main.state_deltas import StateDeltasStore
 from synapse.storage.engines import PostgresEngine, Sqlite3Engine
-from synapse.storage.types import Connection
 from synapse.types import JsonDict, get_domain_from_id, get_localpart_from_id
 from synapse.util.caches.descriptors import cached
 
@@ -53,7 +56,7 @@ class UserDirectoryBackgroundUpdateStore(StateDeltasStore):
     def __init__(
         self,
         database: DatabasePool,
-        db_conn: Connection,
+        db_conn: LoggingDatabaseConnection,
         hs: "HomeServer",
     ):
         super().__init__(database, db_conn, hs)
@@ -102,8 +105,10 @@ class UserDirectoryBackgroundUpdateStore(StateDeltasStore):
                 GROUP BY room_id
             """
             txn.execute(sql)
-            rooms = [{"room_id": x[0], "events": x[1]} for x in txn.fetchall()]
-            self.db_pool.simple_insert_many_txn(txn, TEMP_TABLE + "_rooms", rooms)
+            rooms = list(txn.fetchall())
+            self.db_pool.simple_insert_many_txn(
+                txn, TEMP_TABLE + "_rooms", keys=("room_id", "events"), values=rooms
+            )
             del rooms
 
             sql = (
@@ -114,9 +119,11 @@ class UserDirectoryBackgroundUpdateStore(StateDeltasStore):
             txn.execute(sql)
 
             txn.execute("SELECT name FROM users")
-            users = [{"user_id": x[0]} for x in txn.fetchall()]
+            users = list(txn.fetchall())
 
-            self.db_pool.simple_insert_many_txn(txn, TEMP_TABLE + "_users", users)
+            self.db_pool.simple_insert_many_txn(
+                txn, TEMP_TABLE + "_users", keys=("user_id",), values=users
+            )
 
         new_pos = await self.get_max_stream_id_in_current_state_deltas()
         await self.db_pool.runInteraction(
@@ -592,7 +599,7 @@ class UserDirectoryStore(UserDirectoryBackgroundUpdateStore):
     def __init__(
         self,
         database: DatabasePool,
-        db_conn: Connection,
+        db_conn: LoggingDatabaseConnection,
         hs: "HomeServer",
     ) -> None:
         super().__init__(database, db_conn, hs)

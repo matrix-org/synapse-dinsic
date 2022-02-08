@@ -12,14 +12,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from synapse.rest.media.v1.preview_url_resource import (
-    _calc_og,
+from synapse.rest.media.v1.preview_html import (
+    _get_html_media_encodings,
     decode_body,
-    get_html_media_encodings,
+    parse_html_to_open_graph,
+    rebase_url,
     summarize_paragraphs,
 )
 
-from . import unittest
+from tests import unittest
 
 try:
     import lxml
@@ -160,7 +161,7 @@ class CalcOgTestCase(unittest.TestCase):
         """
 
         tree = decode_body(html, "http://example.com/test.html")
-        og = _calc_og(tree, "http://example.com/test.html")
+        og = parse_html_to_open_graph(tree, "http://example.com/test.html")
 
         self.assertEqual(og, {"og:title": "Foo", "og:description": "Some text."})
 
@@ -176,7 +177,7 @@ class CalcOgTestCase(unittest.TestCase):
         """
 
         tree = decode_body(html, "http://example.com/test.html")
-        og = _calc_og(tree, "http://example.com/test.html")
+        og = parse_html_to_open_graph(tree, "http://example.com/test.html")
 
         self.assertEqual(og, {"og:title": "Foo", "og:description": "Some text."})
 
@@ -195,7 +196,7 @@ class CalcOgTestCase(unittest.TestCase):
         """
 
         tree = decode_body(html, "http://example.com/test.html")
-        og = _calc_og(tree, "http://example.com/test.html")
+        og = parse_html_to_open_graph(tree, "http://example.com/test.html")
 
         self.assertEqual(
             og,
@@ -217,7 +218,7 @@ class CalcOgTestCase(unittest.TestCase):
         """
 
         tree = decode_body(html, "http://example.com/test.html")
-        og = _calc_og(tree, "http://example.com/test.html")
+        og = parse_html_to_open_graph(tree, "http://example.com/test.html")
 
         self.assertEqual(og, {"og:title": "Foo", "og:description": "Some text."})
 
@@ -231,7 +232,7 @@ class CalcOgTestCase(unittest.TestCase):
         """
 
         tree = decode_body(html, "http://example.com/test.html")
-        og = _calc_og(tree, "http://example.com/test.html")
+        og = parse_html_to_open_graph(tree, "http://example.com/test.html")
 
         self.assertEqual(og, {"og:title": None, "og:description": "Some text."})
 
@@ -246,7 +247,7 @@ class CalcOgTestCase(unittest.TestCase):
         """
 
         tree = decode_body(html, "http://example.com/test.html")
-        og = _calc_og(tree, "http://example.com/test.html")
+        og = parse_html_to_open_graph(tree, "http://example.com/test.html")
 
         self.assertEqual(og, {"og:title": "Title", "og:description": "Some text."})
 
@@ -261,7 +262,7 @@ class CalcOgTestCase(unittest.TestCase):
         """
 
         tree = decode_body(html, "http://example.com/test.html")
-        og = _calc_og(tree, "http://example.com/test.html")
+        og = parse_html_to_open_graph(tree, "http://example.com/test.html")
 
         self.assertEqual(og, {"og:title": None, "og:description": "Some text."})
 
@@ -289,7 +290,7 @@ class CalcOgTestCase(unittest.TestCase):
         <head><title>Foo</title></head><body>Some text.</body></html>
         """.strip()
         tree = decode_body(html, "http://example.com/test.html")
-        og = _calc_og(tree, "http://example.com/test.html")
+        og = parse_html_to_open_graph(tree, "http://example.com/test.html")
         self.assertEqual(og, {"og:title": "Foo", "og:description": "Some text."})
 
     def test_invalid_encoding(self):
@@ -303,7 +304,7 @@ class CalcOgTestCase(unittest.TestCase):
         </html>
         """
         tree = decode_body(html, "http://example.com/test.html", "invalid-encoding")
-        og = _calc_og(tree, "http://example.com/test.html")
+        og = parse_html_to_open_graph(tree, "http://example.com/test.html")
         self.assertEqual(og, {"og:title": "Foo", "og:description": "Some text."})
 
     def test_invalid_encoding2(self):
@@ -318,7 +319,7 @@ class CalcOgTestCase(unittest.TestCase):
         </html>
         """
         tree = decode_body(html, "http://example.com/test.html")
-        og = _calc_og(tree, "http://example.com/test.html")
+        og = parse_html_to_open_graph(tree, "http://example.com/test.html")
         self.assertEqual(og, {"og:title": "ÿÿ Foo", "og:description": "Some text."})
 
     def test_windows_1252(self):
@@ -332,14 +333,14 @@ class CalcOgTestCase(unittest.TestCase):
         </html>
         """
         tree = decode_body(html, "http://example.com/test.html")
-        og = _calc_og(tree, "http://example.com/test.html")
+        og = parse_html_to_open_graph(tree, "http://example.com/test.html")
         self.assertEqual(og, {"og:title": "ó", "og:description": "Some text."})
 
 
 class MediaEncodingTestCase(unittest.TestCase):
     def test_meta_charset(self):
         """A character encoding is found via the meta tag."""
-        encodings = get_html_media_encodings(
+        encodings = _get_html_media_encodings(
             b"""
         <html>
         <head><meta charset="ascii">
@@ -351,7 +352,7 @@ class MediaEncodingTestCase(unittest.TestCase):
         self.assertEqual(list(encodings), ["ascii", "utf-8", "cp1252"])
 
         # A less well-formed version.
-        encodings = get_html_media_encodings(
+        encodings = _get_html_media_encodings(
             b"""
         <html>
         <head>< meta charset = ascii>
@@ -364,7 +365,7 @@ class MediaEncodingTestCase(unittest.TestCase):
 
     def test_meta_charset_underscores(self):
         """A character encoding contains underscore."""
-        encodings = get_html_media_encodings(
+        encodings = _get_html_media_encodings(
             b"""
         <html>
         <head><meta charset="Shift_JIS">
@@ -377,7 +378,7 @@ class MediaEncodingTestCase(unittest.TestCase):
 
     def test_xml_encoding(self):
         """A character encoding is found via the meta tag."""
-        encodings = get_html_media_encodings(
+        encodings = _get_html_media_encodings(
             b"""
         <?xml version="1.0" encoding="ascii"?>
         <html>
@@ -389,7 +390,7 @@ class MediaEncodingTestCase(unittest.TestCase):
 
     def test_meta_xml_encoding(self):
         """Meta tags take precedence over XML encoding."""
-        encodings = get_html_media_encodings(
+        encodings = _get_html_media_encodings(
             b"""
         <?xml version="1.0" encoding="ascii"?>
         <html>
@@ -413,17 +414,17 @@ class MediaEncodingTestCase(unittest.TestCase):
             'text/html; charset=ascii";',
         )
         for header in headers:
-            encodings = get_html_media_encodings(b"", header)
+            encodings = _get_html_media_encodings(b"", header)
             self.assertEqual(list(encodings), ["ascii", "utf-8", "cp1252"])
 
     def test_fallback(self):
         """A character encoding cannot be found in the body or header."""
-        encodings = get_html_media_encodings(b"", "text/html")
+        encodings = _get_html_media_encodings(b"", "text/html")
         self.assertEqual(list(encodings), ["utf-8", "cp1252"])
 
     def test_duplicates(self):
         """Ensure each encoding is only attempted once."""
-        encodings = get_html_media_encodings(
+        encodings = _get_html_media_encodings(
             b"""
         <?xml version="1.0" encoding="utf8"?>
         <html>
@@ -437,7 +438,7 @@ class MediaEncodingTestCase(unittest.TestCase):
 
     def test_unknown_invalid(self):
         """A character encoding should be ignored if it is unknown or invalid."""
-        encodings = get_html_media_encodings(
+        encodings = _get_html_media_encodings(
             b"""
         <html>
         <head><meta charset="invalid">
@@ -447,3 +448,34 @@ class MediaEncodingTestCase(unittest.TestCase):
             'text/html; charset="invalid"',
         )
         self.assertEqual(list(encodings), ["utf-8", "cp1252"])
+
+
+class RebaseUrlTestCase(unittest.TestCase):
+    def test_relative(self):
+        """Relative URLs should be resolved based on the context of the base URL."""
+        self.assertEqual(
+            rebase_url("subpage", "https://example.com/foo/"),
+            "https://example.com/foo/subpage",
+        )
+        self.assertEqual(
+            rebase_url("sibling", "https://example.com/foo"),
+            "https://example.com/sibling",
+        )
+        self.assertEqual(
+            rebase_url("/bar", "https://example.com/foo/"),
+            "https://example.com/bar",
+        )
+
+    def test_absolute(self):
+        """Absolute URLs should not be modified."""
+        self.assertEqual(
+            rebase_url("https://alice.com/a/", "https://example.com/foo/"),
+            "https://alice.com/a/",
+        )
+
+    def test_data(self):
+        """Data URLs should not be modified."""
+        self.assertEqual(
+            rebase_url("data:,Hello%2C%20World%21", "https://example.com/foo/"),
+            "data:,Hello%2C%20World%21",
+        )
