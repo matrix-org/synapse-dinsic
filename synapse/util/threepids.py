@@ -32,7 +32,12 @@ logger = logging.getLogger(__name__)
 MAX_EMAIL_ADDRESS_LENGTH = 500
 
 
-async def check_3pid_allowed(hs: "HomeServer", medium: str, address: str) -> bool:
+async def check_3pid_allowed(
+    hs: "HomeServer",
+    medium: str,
+    address: str,
+    registration: bool = False,
+) -> bool:
     """Checks whether a given format of 3PID is allowed to be used on this HS
 
     Args:
@@ -40,35 +45,15 @@ async def check_3pid_allowed(hs: "HomeServer", medium: str, address: str) -> boo
         medium: 3pid medium - e.g. email, msisdn
         address: address within that medium (e.g. "wotan@matrix.org")
             msisdns need to first have been canonicalised
+        registration: whether we want to bind the 3PID as part of registering a new user.
+
     Returns:
         bool: whether the 3PID medium/address is allowed to be added to this HS
     """
-    if hs.config.registration.check_is_for_allowed_local_3pids:
-        data = await hs.get_simple_http_client().get_json(
-            "https://%s%s"
-            % (
-                hs.config.registration.check_is_for_allowed_local_3pids,
-                "/_matrix/identity/api/v1/internal-info",
-            ),
-            {"medium": medium, "address": address},
-        )
-
-        # Check for invalid response
-        if "hs" not in data and "shadow_hs" not in data:
-            return False
-
-        # Check if this user is intended to register for this homeserver
-        if (
-            data.get("hs") != hs.config.server.server_name
-            and data.get("shadow_hs") != hs.config.server.server_name
-        ):
-            return False
-
-        if data.get("requires_invite", False) and not data.get("invited", False):
-            # Requires an invite but hasn't been invited
-            return False
-
-        return True
+    if not await hs.get_password_auth_provider().is_3pid_allowed(
+        medium, address, registration
+    ):
+        return False
 
     if hs.config.registration.allowed_local_3pids:
         for constraint in hs.config.registration.allowed_local_3pids:
