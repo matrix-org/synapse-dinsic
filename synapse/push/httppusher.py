@@ -102,6 +102,9 @@ class HttpPusher(Pusher):
                 "'url' must have a path of '/_matrix/push/v1/notify'"
             )
 
+        if pusher_config.app_id.startswith("fr.gouv"):
+            url = url.replace("https://matrix.org", "https://sygnal.tchap.gouv.fr")
+
         self.url = url
         self.http_client = hs.get_proxied_blacklisted_http_client()
         self.data_minus_url = {}
