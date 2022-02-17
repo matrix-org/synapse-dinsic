@@ -695,26 +695,18 @@ class RegisterRestServlet(RestServlet):
                 session_id
             )
 
-            # TODO: This won't be needed anymore once https://github.com/matrix-org/matrix-dinsic/issues/793
-            #  is resolved.
-            desired_display_name = body.get("display_name")
-            if auth_result:
-                if LoginType.EMAIL_IDENTITY in auth_result:
-                    address = auth_result[LoginType.EMAIL_IDENTITY]["address"]
-                    if (
-                        self.hs.config.registration.register_just_use_email_for_display_name
-                    ):
-                        desired_display_name = address
-                    else:
-                        # Custom mapping between email address and display name
-                        desired_display_name = _map_email_to_displayname(address)
+            display_name = await (
+                self.password_auth_provider.get_displayname_for_registration(
+                    auth_result, params
+                )
+            )
 
             registered_user_id = await self.registration_handler.register_user(
                 localpart=desired_username,
                 password_hash=password_hash,
                 guest_access_token=guest_access_token,
-                default_display_name=desired_display_name,
                 threepid=threepid,
+                default_display_name=display_name,
                 address=client_addr,
                 user_agent_ips=entries,
             )
