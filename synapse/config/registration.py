@@ -43,9 +43,6 @@ class RegistrationConfig(Config):
             "registration_requires_token", False
         )
         self.registration_shared_secret = config.get("registration_shared_secret")
-        self.register_just_use_email_for_display_name = config.get(
-            "register_just_use_email_for_display_name", False
-        )
 
         self.bcrypt_rounds = config.get("bcrypt_rounds", 12)
 
