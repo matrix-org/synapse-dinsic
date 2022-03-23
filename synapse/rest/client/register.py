@@ -695,26 +695,18 @@ class RegisterRestServlet(RestServlet):
                 session_id
             )
 
-            # TODO: This won't be needed anymore once https://github.com/matrix-org/matrix-dinsic/issues/793
-            #  is resolved.
-            desired_display_name = body.get("display_name")
-            if auth_result:
-                if LoginType.EMAIL_IDENTITY in auth_result:
-                    address = auth_result[LoginType.EMAIL_IDENTITY]["address"]
-                    if (
-                        self.hs.config.registration.register_just_use_email_for_display_name
-                    ):
-                        desired_display_name = address
-                    else:
-                        # Custom mapping between email address and display name
-                        desired_display_name = _map_email_to_displayname(address)
+            display_name = await (
+                self.password_auth_provider.get_displayname_for_registration(
+                    auth_result, params
+                )
+            )
 
             registered_user_id = await self.registration_handler.register_user(
                 localpart=desired_username,
                 password_hash=password_hash,
                 guest_access_token=guest_access_token,
-                default_display_name=desired_display_name,
                 threepid=threepid,
+                default_display_name=display_name,
                 address=client_addr,
                 user_agent_ips=entries,
             )
@@ -874,60 +866,6 @@ class RegisterRestServlet(RestServlet):
             result["refresh_token"] = refresh_token
 
         return 200, result
-
-
-def cap(name: str) -> str:
-    """Capitalise parts of a name containing different words, including those
-    separated by hyphens.
-    For example, 'John-Doe'
-
-    Args:
-        The name to parse
-    """
-    if not name:
-        return name
-
-    # Split the name by whitespace then hyphens, capitalizing each part then
-    # joining it back together.
-    capatilized_name = " ".join(
-        "-".join(part.capitalize() for part in space_part.split("-"))
-        for space_part in name.split()
-    )
-    return capatilized_name
-
-
-def _map_email_to_displayname(address: str) -> str:
-    """Custom mapping from an email address to a user displayname
-
-    Args:
-        address: The email address to process
-    Returns:
-        The new displayname
-    """
-    # Split the part before and after the @ in the email.
-    # Replace all . with spaces in the first part
-    parts = address.replace(".", " ").split("@")
-
-    # Figure out which org this email address belongs to
-    org_parts = parts[1].split(" ")
-
-    # If this is a ...matrix.org email, mark them as an Admin
-    if org_parts[-2] == "matrix" and org_parts[-1] == "org":
-        org = "Tchap Admin"
-
-    # Is this is a ...gouv.fr address, set the org to whatever is before
-    # gouv.fr. If there isn't anything (a @gouv.fr email) simply mark their
-    # org as "gouv"
-    elif org_parts[-2] == "gouv" and org_parts[-1] == "fr":
-        org = org_parts[-3] if len(org_parts) > 2 else org_parts[-2]
-
-    # Otherwise, mark their org as the email's second-level domain name
-    else:
-        org = org_parts[-2]
-
-    desired_display_name = cap(parts[0]) + " [" + cap(org) + "]"
-
-    return desired_display_name
 
 
 def _calculate_registration_flows(

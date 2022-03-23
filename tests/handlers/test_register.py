@@ -23,7 +23,7 @@ from synapse.api.errors import (
     SynapseError,
 )
 from synapse.events.spamcheck import load_legacy_spam_checkers
-from synapse.rest.client.register import _map_email_to_displayname, register_servlets
+from synapse.rest.client.register import register_servlets
 from synapse.spam_checker_api import RegistrationBehaviour
 from synapse.types import RoomAlias, RoomID, UserID, create_requester
 
@@ -690,26 +690,6 @@ class RegistrationTestCase(unittest.HomeserverTestCase):
         self.get_success(
             self.handler.register_user(localpart="bobflimflob", auth_provider_id="saml")
         )
-
-    def test_email_to_displayname_mapping(self):
-        """Test that custom emails are mapped to new user displaynames correctly"""
-        self._check_mapping(
-            "jack-phillips.rivers@big-org.com", "Jack-Phillips Rivers [Big-Org]"
-        )
-
-        self._check_mapping("bob.jones@matrix.org", "Bob Jones [Tchap Admin]")
-
-        self._check_mapping("bob-jones.blabla@gouv.fr", "Bob-Jones Blabla [Gouv]")
-
-        # Multibyte unicode characters
-        self._check_mapping(
-            "j\u030a\u0065an-poppy.seed@example.com",
-            "J\u030a\u0065an-Poppy Seed [Example]",
-        )
-
-    def _check_mapping(self, i, expected):
-        result = _map_email_to_displayname(i)
-        self.assertEqual(result, expected)
 
     @override_config(
         {
