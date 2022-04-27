@@ -233,7 +233,6 @@ class HttpServer(Protocol):
             servlet_classname (str): The name of the handler to be used in prometheus
                 and opentracing logs.
         """
-        pass
 
 
 class _AsyncResource(resource.Resource, metaclass=abc.ABCMeta):
@@ -296,7 +295,7 @@ class _AsyncResource(resource.Resource, metaclass=abc.ABCMeta):
             if isawaitable(raw_callback_return):
                 callback_return = await raw_callback_return
             else:
-                callback_return = raw_callback_return  # type: ignore
+                callback_return = raw_callback_return
 
             return callback_return
 
@@ -470,7 +469,7 @@ class JsonResource(DirectServeJsonResource):
         if isinstance(raw_callback_return, (defer.Deferred, types.CoroutineType)):
             callback_return = await raw_callback_return
         else:
-            callback_return = raw_callback_return  # type: ignore
+            callback_return = raw_callback_return
 
         return callback_return
 

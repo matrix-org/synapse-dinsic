@@ -20,8 +20,8 @@ from typing import (
     TYPE_CHECKING,
     Any,
     BinaryIO,
+    Callable,
     Dict,
-    Iterable,
     List,
     Mapping,
     Optional,
@@ -71,6 +71,7 @@ from twisted.web.iweb import (
 from synapse.api.errors import Codes, HttpResponseException, SynapseError
 from synapse.http import QuieterFileBodyProducer, RequestTimedOutError, redact_uri
 from synapse.http.proxyagent import ProxyAgent
+from synapse.http.types import QueryParams
 from synapse.logging.context import make_deferred_yieldable
 from synapse.logging.opentracing import set_tag, start_active_span, tags
 from synapse.types import ISynapseReactor
@@ -95,10 +96,6 @@ RawHeaders = Union[Mapping[str, "RawHeaderValue"], Mapping[bytes, "RawHeaderValu
 # the value actually has to be a List, but List is invariant so we can't specify that
 # the entries can either be Lists or bytes.
 RawHeaderValue = Sequence[Union[str, bytes]]
-
-# the type of the query params, to be passed into `urlencode`
-QueryParamValue = Union[str, bytes, Iterable[Union[str, bytes]]]
-QueryParams = Union[Mapping[str, QueryParamValue], Mapping[bytes, QueryParamValue]]
 
 
 def check_against_blacklist(
@@ -321,20 +318,19 @@ class SimpleHttpClient:
         self._ip_whitelist = ip_whitelist
         self._ip_blacklist = ip_blacklist
         self._extra_treq_args = treq_args or {}
-
-        self.user_agent = hs.version_string
         self.clock = hs.get_clock()
+
+        user_agent = hs.version_string
         if hs.config.server.user_agent_suffix:
-            self.user_agent = "%s %s" % (
-                self.user_agent,
+            user_agent = "%s %s" % (
+                user_agent,
                 hs.config.server.user_agent_suffix,
             )
+        self.user_agent = user_agent.encode("ascii")
 
         # We use this for our body producers to ensure that they use the correct
         # reactor.
         self._cooperator = Cooperator(scheduler=_make_scheduler(hs.get_reactor()))
-
-        self.user_agent = self.user_agent.encode("ascii")
 
         if self._ip_blacklist:
             # If we have an IP blacklist, we need to use a DNS resolver which
@@ -693,12 +689,18 @@ class SimpleHttpClient:
         output_stream: BinaryIO,
         max_size: Optional[int] = None,
         headers: Optional[RawHeaders] = None,
+        is_allowed_content_type: Optional[Callable[[str], bool]] = None,
     ) -> Tuple[int, Dict[bytes, List[bytes]], str, int]:
         """GETs a file from a given URL
         Args:
             url: The URL to GET
             output_stream: File to write the response body to.
             headers: A map from header name to a list of values for that header
+            is_allowed_content_type: A predicate to determine whether the
+                content type of the file we're downloading is allowed. If set and
+                it evaluates to False when called with the content type, the
+                request will be terminated before completing the download by
+                raising SynapseError.
         Returns:
             A tuple of the file length, dict of the response
             headers, absolute URI of the response and HTTP response code.
@@ -725,6 +727,17 @@ class SimpleHttpClient:
             raise SynapseError(
                 HTTPStatus.BAD_GATEWAY, "Got error %d" % (response.code,), Codes.UNKNOWN
             )
+
+        if is_allowed_content_type and b"Content-Type" in resp_headers:
+            content_type = resp_headers[b"Content-Type"][0].decode("ascii")
+            if not is_allowed_content_type(content_type):
+                raise SynapseError(
+                    HTTPStatus.BAD_GATEWAY,
+                    (
+                        "Requested file's content type not allowed for this operation: %s"
+                        % content_type
+                    ),
+                )
 
         # TODO: if our Content-Type is HTML or something, just read the first
         # N bytes into RAM rather than saving it all to disk only to read it
@@ -894,7 +907,7 @@ def read_body_with_max_size(
     return d
 
 
-def encode_query_args(args: Optional[Mapping[str, Union[str, List[str]]]]) -> bytes:
+def encode_query_args(args: Optional[QueryParams]) -> bytes:
     """
     Encodes a map of query arguments to bytes which can be appended to a URL.
 
@@ -907,13 +920,7 @@ def encode_query_args(args: Optional[Mapping[str, Union[str, List[str]]]]) -> by
     if args is None:
         return b""
 
-    encoded_args = {}
-    for k, vs in args.items():
-        if isinstance(vs, str):
-            vs = [vs]
-        encoded_args[k] = [v.encode("utf8") for v in vs]
-
-    query_str = urllib.parse.urlencode(encoded_args, True)
+    query_str = urllib.parse.urlencode(args, True)
 
     return query_str.encode("utf8")
 

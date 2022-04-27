@@ -66,7 +66,7 @@ class ProfileHandler:
     PROFILE_REPLICATE_INTERVAL = 2 * 60 * 1000
 
     def __init__(self, hs: "HomeServer"):
-        self.store = hs.get_datastore()
+        self.store = hs.get_datastores().main
         self.clock = hs.get_clock()
         self.hs = hs
 
@@ -87,6 +87,8 @@ class ProfileHandler:
         self.allowed_avatar_mimetypes = hs.config.server.allowed_avatar_mimetypes
 
         self.server_name = hs.config.server.server_name
+
+        self._third_party_rules = hs.get_third_party_event_rules()
 
         if hs.config.worker.run_background_tasks:
             self.clock.looping_call(
@@ -271,6 +273,7 @@ class ProfileHandler:
         requester: Requester,
         new_displayname: str,
         by_admin: bool = False,
+        deactivation: bool = False,
     ) -> None:
         """Set the displayname of a user
 
@@ -279,6 +282,7 @@ class ProfileHandler:
             requester: The user attempting to make this change.
             new_displayname: The displayname to give this user.
             by_admin: Whether this change was made by an administrator.
+            deactivation: Whether this change was made while deactivating the user.
         """
         if not self.hs.is_mine(target_user):
             raise SynapseError(400, "User is not hosted on this homeserver")
@@ -334,52 +338,11 @@ class ProfileHandler:
             target_user.to_string(), profile
         )
 
-        # Don't ratelimit when the admin makes the change.
-        # FIXME: this is because we call this function on registration to update DINUM's
-        #  custom userdir.
-        await self._update_join_states(requester, target_user, ratelimit=not by_admin)
+        await self._third_party_rules.on_profile_update(
+            target_user.to_string(), profile, by_admin, deactivation
+        )
 
-        # start a profile replication push
-        run_in_background(self._replicate_profiles)
-
-    async def set_active(
-        self,
-        users: List[UserID],
-        active: bool,
-        hide: bool,
-    ) -> None:
-        """
-        Sets the 'active' flag on a set of user profiles. If set to false, the
-        accounts are considered deactivated or hidden.
-
-        If 'hide' is true, then we interpret active=False as a request to try to
-        hide the users rather than deactivating them. This means withholding the
-        profiles from replication (and mark it as inactive) rather than clearing
-        the profile from the HS DB.
-
-        Note that unlike set_displayname and set_avatar_url, this does *not*
-        perform authorization checks! This is because the only place it's used
-        currently is in account deactivation where we've already done these
-        checks anyway.
-
-        Args:
-            users: The users to modify
-            active: Whether to set the user to active or inactive
-            hide: Whether to hide the user (withold from replication). If
-                False and active is False, user will have their profile
-                erased
-        """
-        new_batchnum = None
-        if len(self.replicate_user_profiles_to) > 0:
-            cur_batchnum = (
-                await self.store.get_latest_profile_replication_batch_number()
-            )
-            new_batchnum = 0 if cur_batchnum is None else cur_batchnum + 1
-
-        await self.store.set_profiles_active(users, active, hide, new_batchnum)
-
-        # start a profile replication push
-        run_in_background(self._replicate_profiles)
+        await self._update_join_states(requester, target_user)
 
     async def get_avatar_url(self, target_user: UserID) -> Optional[str]:
         if self.hs.is_mine(target_user):
@@ -413,6 +376,7 @@ class ProfileHandler:
         requester: Requester,
         new_avatar_url: str,
         by_admin: bool = False,
+        deactivation: bool = False,
     ) -> None:
         """Set a new avatar URL for a user.
 
@@ -421,6 +385,7 @@ class ProfileHandler:
             requester: The user attempting to make this change.
             new_avatar_url: The avatar URL to give this user.
             by_admin: Whether this change was made by an administrator.
+            deactivation: Whether this change was made while deactivating the user.
         """
         if not self.hs.is_mine(target_user):
             raise SynapseError(400, "User is not hosted on this homeserver")
@@ -474,6 +439,10 @@ class ProfileHandler:
             target_user.to_string(), profile
         )
 
+        await self._third_party_rules.on_profile_update(
+            target_user.to_string(), profile, by_admin, deactivation
+        )
+
         await self._update_join_states(requester, target_user)
 
         # start a profile replication push
@@ -484,12 +453,18 @@ class ProfileHandler:
         """Check that the size and content type of the avatar at the given MXC URI are
         within the configured limits.
 
+        If the given `mxc` is empty, no checks are performed. (Users are always able to
+        unset their avatar.)
+
         Args:
             mxc: The MXC URI at which the avatar can be found.
 
         Returns:
              A boolean indicating whether the file can be allowed to be set as an avatar.
         """
+        if mxc == "":
+            return True
+
         if not self.max_avatar_size and not self.allowed_avatar_mimetypes:
             return True
 

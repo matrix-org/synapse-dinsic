@@ -12,11 +12,17 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import json
+from http import HTTPStatus
+
+from twisted.test.proto_helpers import MemoryReactor
 from unittest.mock import Mock
 
 from twisted.internet import defer
 
 import synapse.rest.admin
+from synapse.server import HomeServer
+from synapse.util import Clock
 from synapse.rest.client import account, login, room
 
 from tests import unittest
@@ -32,7 +38,7 @@ class IdentityDisabledTestCase(unittest.HomeserverTestCase):
         login.register_servlets,
     ]
 
-    def make_homeserver(self, reactor, clock):
+    def make_homeserver(self, reactor: MemoryReactor, clock: Clock) -> HomeServer:
 
         config = self.default_config()
         config["trusted_third_party_id_servers"] = ["testis"]

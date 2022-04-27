@@ -15,7 +15,6 @@ from typing import Tuple
 from unittest.mock import Mock, patch
 from urllib.parse import quote
 
-from twisted.internet import defer
 from twisted.test.proto_helpers import MemoryReactor
 
 import synapse.rest.admin
@@ -37,6 +36,7 @@ from synapse.util import Clock
 
 from tests import unittest
 from tests.storage.test_user_directory import GetUserDirectoryTables
+from tests.test_utils import make_awaitable
 from tests.test_utils.event_injection import inject_member_event
 from tests.unittest import override_config
 
@@ -84,7 +84,7 @@ class UserDirectoryTestCase(unittest.HomeserverTestCase):
         return hs
 
     def prepare(self, reactor: MemoryReactor, clock: Clock, hs: HomeServer) -> None:
-        self.store = hs.get_datastore()
+        self.store = hs.get_datastores().main
         self.handler = hs.get_user_directory_handler()
         self.event_builder_factory = self.hs.get_event_builder_factory()
         self.event_creation_handler = self.hs.get_event_creation_handler()
@@ -176,7 +176,9 @@ class UserDirectoryTestCase(unittest.HomeserverTestCase):
         # Register an AS user.
         user = self.register_user("user", "pass")
         token = self.login(user, "pass")
-        as_user = self.register_appservice_user("as_user_potato", self.appservice.token)
+        as_user, _ = self.register_appservice_user(
+            "as_user_potato", self.appservice.token
+        )
 
         # Join the AS user to rooms owned by the normal user.
         public, private = self._create_rooms_and_inject_memberships(
@@ -356,6 +358,7 @@ class UserDirectoryTestCase(unittest.HomeserverTestCase):
             self.handler.handle_local_profile_change(regular_user_id, profile_info)
         )
         profile = self.get_success(self.store.get_user_in_directory(regular_user_id))
+        assert profile is not None
         self.assertTrue(profile["display_name"] == display_name)
 
     def test_handle_local_profile_change_with_deactivated_user(self) -> None:
@@ -374,6 +377,7 @@ class UserDirectoryTestCase(unittest.HomeserverTestCase):
 
         # profile is in directory
         profile = self.get_success(self.store.get_user_in_directory(r_user_id))
+        assert profile is not None
         self.assertTrue(profile["display_name"] == display_name)
 
         # deactivate user
@@ -395,7 +399,7 @@ class UserDirectoryTestCase(unittest.HomeserverTestCase):
 
     def test_handle_local_profile_change_with_appservice_user(self) -> None:
         # create user
-        as_user_id = self.register_appservice_user(
+        as_user_id, _ = self.register_appservice_user(
             "as_user_alice", self.appservice.token
         )
 
@@ -442,7 +446,7 @@ class UserDirectoryTestCase(unittest.HomeserverTestCase):
             )
         )
 
-        mock_remove_from_user_dir = Mock(return_value=defer.succeed(None))
+        mock_remove_from_user_dir = Mock(return_value=make_awaitable(None))
         with patch.object(
             self.store, "remove_from_user_dir", mock_remove_from_user_dir
         ):
@@ -457,7 +461,7 @@ class UserDirectoryTestCase(unittest.HomeserverTestCase):
             self.store.register_user(user_id=r_user_id, password_hash=None)
         )
 
-        mock_remove_from_user_dir = Mock(return_value=defer.succeed(None))
+        mock_remove_from_user_dir = Mock(return_value=make_awaitable(None))
         with patch.object(
             self.store, "remove_from_user_dir", mock_remove_from_user_dir
         ):
@@ -1047,7 +1051,7 @@ class TestUserDirSearchDisabled(unittest.HomeserverTestCase):
             b'{"search_term":"user2"}',
             access_token=u1_token,
         )
-        self.assertEquals(200, channel.code, channel.result)
+        self.assertEqual(200, channel.code, channel.result)
         self.assertTrue(len(channel.json_body["results"]) > 0)
 
         # Disable user directory and check search returns nothing
@@ -1058,7 +1062,7 @@ class TestUserDirSearchDisabled(unittest.HomeserverTestCase):
             b'{"search_term":"user2"}',
             access_token=u1_token,
         )
-        self.assertEquals(200, channel.code, channel.result)
+        self.assertEqual(200, channel.code, channel.result)
         self.assertTrue(len(channel.json_body["results"]) == 0)
 
 
