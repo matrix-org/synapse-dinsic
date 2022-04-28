@@ -957,6 +957,94 @@ class PasswordAuthProviderTests(unittest.HomeserverTestCase):
         self.assertEqual(channel.code, 200, channel.json_body)
         return channel.json_body
 
+    # Set some email configuration so the test doesn't fail because of its absence.
+    @override_config({"email": {"notif_from": "noreply@test"}})
+    def test_3pid_allowed(self):
+        """Tests that an is_3pid_allowed_callbacks forbidding a 3PID makes Synapse refuse
+        to bind the new 3PID, and that one allowing a 3PID makes Synapse accept to bind
+        the 3PID. Also checks that the module is passed a boolean indicating whether the
+        user to bind this 3PID to is currently registering.
+        """
+        self._test_3pid_allowed("rin", False)
+        self._test_3pid_allowed("kitay", True)
+
+    def _test_3pid_allowed(self, username: str, registration: bool):
+        """Tests that the "is_3pid_allowed" module callback is called correctly, using
+        either /register or /account URLs depending on the arguments.
+
+        Args:
+            username: The username to use for the test.
+            registration: Whether to test with registration URLs.
+        """
+        self.hs.get_identity_handler().send_threepid_validation = Mock(
+            return_value=make_awaitable(0),
+        )
+
+        m = Mock(return_value=make_awaitable(False))
+        self.hs.get_password_auth_provider().is_3pid_allowed_callbacks = [m]
+
+        self.register_user(username, "password")
+        tok = self.login(username, "password")
+
+        if registration:
+            url = "/register/email/requestToken"
+        else:
+            url = "/account/3pid/email/requestToken"
+
+        channel = self.make_request(
+            "POST",
+            url,
+            {
+                "client_secret": "foo",
+                "email": "foo@test.com",
+                "send_attempt": 0,
+            },
+            access_token=tok,
+        )
+        self.assertEqual(channel.code, 403, channel.result)
+        self.assertEqual(
+            channel.json_body["errcode"],
+            Codes.THREEPID_DENIED,
+            channel.json_body,
+        )
+
+        m.assert_called_once_with("email", "foo@test.com", registration)
+
+        m = Mock(return_value=make_awaitable(True))
+        self.hs.get_password_auth_provider().is_3pid_allowed_callbacks = [m]
+
+        channel = self.make_request(
+            "POST",
+            url,
+            {
+                "client_secret": "foo",
+                "email": "bar@test.com",
+                "send_attempt": 0,
+            },
+            access_token=tok,
+        )
+        self.assertEqual(channel.code, 200, channel.result)
+        self.assertIn("sid", channel.json_body)
+
+        m.assert_called_once_with("email", "bar@test.com", registration)
+
+    def _setup_get_username_for_registration(self) -> Mock:
+        """Registers a get_username_for_registration callback that appends "-foo" to the
+        username the client is trying to register.
+        """
+
+        async def get_username_for_registration(uia_results, params):
+            self.assertIn(LoginType.DUMMY, uia_results)
+            username = params["username"]
+            return username + "-foo"
+
+        m = Mock(side_effect=get_username_for_registration)
+
+        password_auth_provider = self.hs.get_password_auth_provider()
+        password_auth_provider.get_username_for_registration_callbacks.append(m)
+
+        return m
+
     def _get_login_flows(self) -> JsonDict:
         channel = self.make_request("GET", "/_matrix/client/r0/login")
         self.assertEqual(channel.code, 200, channel.result)
