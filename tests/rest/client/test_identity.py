@@ -12,12 +12,18 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import json
+from http import HTTPStatus
+
+from twisted.test.proto_helpers import MemoryReactor
 from unittest.mock import Mock
 
 from twisted.internet import defer
 
 import synapse.rest.admin
-from synapse.rest.client import account, login, room
+from synapse.rest.client import login, room
+from synapse.server import HomeServer
+from synapse.util import Clock
 
 from tests import unittest
 
@@ -32,7 +38,7 @@ class IdentityDisabledTestCase(unittest.HomeserverTestCase):
         login.register_servlets,
     ]
 
-    def make_homeserver(self, reactor, clock):
+    def make_homeserver(self, reactor: MemoryReactor, clock: Clock) -> HomeServer:
 
         config = self.default_config()
         config["trusted_third_party_id_servers"] = ["testis"]
@@ -59,7 +65,7 @@ class IdentityDisabledTestCase(unittest.HomeserverTestCase):
         channel = self.make_request(b"POST", request_url, data, access_token=self.tok)
         self.assertEquals(channel.result["code"], b"403", channel.result)
 
-    def test_3pid_lookup_disabled(self):
+    def test_3pid_lookup_disabled(self) -> None:
         self.hs.config.registration.enable_3pid_lookup = False
 
         url = (
@@ -115,10 +121,8 @@ class IdentityEnabledTestCase(unittest.HomeserverTestCase):
         self.tok = self.login("kermit", "monkey")
 
     def test_3pid_invite_enabled(self):
-        channel = self.make_request(
-            b"POST", "/createRoom", b"{}", access_token=self.tok
-        )
-        self.assertEquals(channel.result["code"], b"200", channel.result)
+        channel = self.make_request(b"POST", "/createRoom", b"{}", access_token=tok)
+        self.assertEqual(channel.code, HTTPStatus.OK, channel.result)
         room_id = channel.json_body["room_id"]
 
         data = {
@@ -155,10 +159,11 @@ class IdentityEnabledTestCase(unittest.HomeserverTestCase):
             "id_server": "testis",
             "threepids": [["email", "foo@bar.baz"], ["email", "john.doe@matrix.org"]],
         }
-        self.make_request("POST", url, data, access_token=self.tok)
+        channel = self.make_request("POST", url, data, access_token=self.tok)
 
         post_json = self.hs.get_simple_http_client().post_json_get_json
         post_json.assert_called_once_with(
             "https://testis/_matrix/identity/api/v1/bulk_lookup",
             {"threepids": [["email", "foo@bar.baz"], ["email", "john.doe@matrix.org"]]},
         )
+        self.assertEqual(channel.code, HTTPStatus.FORBIDDEN, channel.result)

@@ -84,7 +84,7 @@ class UserDirectoryTestCase(unittest.HomeserverTestCase):
         return hs
 
     def prepare(self, reactor: MemoryReactor, clock: Clock, hs: HomeServer) -> None:
-        self.store = hs.get_datastore()
+        self.store = hs.get_datastores().main
         self.handler = hs.get_user_directory_handler()
         self.event_builder_factory = self.hs.get_event_builder_factory()
         self.event_creation_handler = self.hs.get_event_creation_handler()
@@ -1049,7 +1049,7 @@ class TestUserDirSearchDisabled(unittest.HomeserverTestCase):
             b'{"search_term":"user2"}',
             access_token=u1_token,
         )
-        self.assertEquals(200, channel.code, channel.result)
+        self.assertEqual(200, channel.code, channel.result)
         self.assertTrue(len(channel.json_body["results"]) > 0)
 
         # Disable user directory and check search returns nothing
@@ -1060,7 +1060,7 @@ class TestUserDirSearchDisabled(unittest.HomeserverTestCase):
             b'{"search_term":"user2"}',
             access_token=u1_token,
         )
-        self.assertEquals(200, channel.code, channel.result)
+        self.assertEqual(200, channel.code, channel.result)
         self.assertTrue(len(channel.json_body["results"]) == 0)
 
 

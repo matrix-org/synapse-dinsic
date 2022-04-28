@@ -86,7 +86,7 @@ class LoginDict(TypedDict):
 
 class RegistrationHandler:
     def __init__(self, hs: "HomeServer"):
-        self.store = hs.get_datastore()
+        self.store = hs.get_datastores().main
         self.clock = hs.get_clock()
         self.hs = hs
         self.auth = hs.get_auth()
@@ -327,18 +327,20 @@ class RegistrationHandler:
         else:
             # autogen a sequential user ID
             fail_count = 0
+            # If a default display name is not given, generate one.
+            generate_display_name = default_display_name is None
             # This breaks on successful registration *or* errors after 10 failures.
             while True:
                 # Fail after being unable to find a suitable ID a few times
                 if fail_count > 10:
                     raise SynapseError(500, "Unable to find a suitable guest user ID")
 
-                localpart = await self.store.generate_user_id()
-                user = UserID(localpart, self.hs.hostname)
+                generated_localpart = await self.store.generate_user_id()
+                user = UserID(generated_localpart, self.hs.hostname)
                 user_id = user.to_string()
                 self.check_user_id_not_appservice_exclusive(user_id)
-                if default_display_name is None:
-                    default_display_name = localpart
+                if generate_display_name:
+                    default_display_name = generated_localpart
                 try:
                     await self.register_with_store(
                         user_id=user_id,

@@ -46,7 +46,7 @@ class AccountValidityHandler:
     def __init__(self, hs: "HomeServer"):
         self.hs = hs
         self.config = hs.config
-        self.store = self.hs.get_datastore()
+        self.store = self.hs.get_datastores().main
         self.send_email_handler = self.hs.get_send_email_handler()
         self.clock = self.hs.get_clock()
 
