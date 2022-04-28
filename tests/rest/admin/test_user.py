@@ -1057,7 +1057,7 @@ class DeactivateAccountTestCase(unittest.HomeserverTestCase):
         Reproduces #12257.
         """
         # Patch `self.other_user` to have an empty string as their avatar.
-        self.get_success(self.store.set_profile_avatar_url("user", ""))
+        self.get_success(self.store.set_profile_avatar_url("user", "", None))
 
         # Check we can still erase them.
         channel = self.make_request(

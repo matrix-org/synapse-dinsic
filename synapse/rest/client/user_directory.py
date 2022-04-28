@@ -25,7 +25,7 @@ from synapse.http.servlet import (
     parse_json_object_from_request,
 )
 from synapse.http.site import SynapseRequest
-from synapse.types import JsonMapping, UserID
+from synapse.types import JsonDict, JsonMapping, UserID
 
 from ._base import client_patterns
 
@@ -133,7 +133,7 @@ class SingleUserInfoServlet(RestServlet):
         user_id_to_info = await self.store.get_info_for_users([user_id])
         return 200, user_id_to_info[user_id]
 
-    async def _on_federation_query(self, args: JsonMapping) -> JsonMapping:
+    async def _on_federation_query(self, args: dict) -> JsonDict:
         """Called when a request for user information appears over federation
 
         Args:
