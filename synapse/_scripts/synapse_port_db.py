@@ -1148,7 +1148,7 @@ class TerminalProgress(Progress):
 ##############################################
 
 
-if __name__ == "__main__":
+def main():
     parser = argparse.ArgumentParser(
         description="A script to port an existing synapse SQLite database to"
         " a new PostgreSQL database."
@@ -1253,3 +1253,7 @@ if __name__ == "__main__":
         sys.stderr.write(end_error)
 
         sys.exit(5)
+
+
+if __name__ == "__main__":
+    main()
