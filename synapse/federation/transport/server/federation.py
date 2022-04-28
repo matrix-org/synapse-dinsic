@@ -642,7 +642,7 @@ class FederationUserInfoServlet(BaseFederationServlet):
         super(FederationUserInfoServlet, self).__init__(
             hs, authenticator, ratelimiter, server_name
         )
-        self._store = hs.get_datastore()
+        self._store = hs.get_datastores().main
 
     async def on_POST(
         self,

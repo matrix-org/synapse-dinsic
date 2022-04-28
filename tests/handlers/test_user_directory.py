@@ -1085,7 +1085,7 @@ class UserInfoTestCase(unittest.FederatingHomeserverTestCase):
 
     def prepare(self, reactor: MemoryReactor, clock: Clock, hs: HomeServer) -> None:
         super(UserInfoTestCase, self).prepare(reactor, clock, hs)
-        self.store = hs.get_datastore()
+        self.store = hs.get_datastores().main
         self.handler = hs.get_user_directory_handler()
 
     def test_user_info(self) -> None:

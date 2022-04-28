@@ -108,7 +108,7 @@ class SingleUserInfoServlet(RestServlet):
         super(SingleUserInfoServlet, self).__init__()
         self.hs = hs
         self.auth = hs.get_auth()
-        self.store = hs.get_datastore()
+        self.store = hs.get_datastores().main
         self.transport_layer = hs.get_federation_transport_client()
         registry = hs.get_federation_registry()
 
@@ -168,7 +168,7 @@ class UserInfoServlet(RestServlet):
         super(UserInfoServlet, self).__init__()
         self.hs = hs
         self.auth = hs.get_auth()
-        self.store = hs.get_datastore()
+        self.store = hs.get_datastores().main
         self.transport_layer = hs.get_federation_transport_client()
 
     async def on_POST(self, request: SynapseRequest) -> Tuple[int, JsonDict]:

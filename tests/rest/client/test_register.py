@@ -16,23 +16,20 @@
 import datetime
 import json
 import os
-from typing import Any, Dict, List, Tuple
 import os.path
 import tempfile
+from typing import Any, Dict, List, Tuple
 from unittest.mock import Mock
 
 import pkg_resources
 
 from twisted.internet import defer
-
 from twisted.test.proto_helpers import MemoryReactor
 
 import synapse.rest.admin
 from synapse.api.constants import APP_SERVICE_REGISTRATION_TYPE, LoginType
 from synapse.api.errors import Codes
 from synapse.appservice import ApplicationService
-from synapse.rest.client import account, account_validity, login, logout, register, sync
-from synapse.server import HomeServer
 from synapse.rest.client import (
     account,
     account_validity,
@@ -44,6 +41,7 @@ from synapse.rest.client import (
     sync,
     user_directory,
 )
+from synapse.server import HomeServer
 from synapse.storage._base import db_to_json
 from synapse.types import JsonDict
 from synapse.util import Clock
@@ -794,7 +792,7 @@ class RegisterHideProfileTestCase(unittest.HomeserverTestCase):
 
     servlets = [synapse.rest.admin.register_servlets_for_client_rest_resource]
 
-    def make_homeserver(self, reactor, clock):
+    def make_homeserver(self, reactor: MemoryReactor, clock: Clock) -> HomeServer:
 
         self.url = b"/_matrix/client/r0/register"
 
@@ -812,7 +810,7 @@ class RegisterHideProfileTestCase(unittest.HomeserverTestCase):
 
         return self.hs
 
-    def test_profile_hidden(self):
+    def test_profile_hidden(self) -> None:
         user_id = self.register_user("kermit", "monkey")
 
         post_json = self.hs.get_simple_http_client().post_json_get_json
@@ -832,7 +830,7 @@ class RegisterHideProfileTestCase(unittest.HomeserverTestCase):
 
 
 class AccountValidityTemplateDirectoryTestCase(unittest.HomeserverTestCase):
-    def make_homeserver(self, reactor, clock):
+    def make_homeserver(self, reactor: MemoryReactor, clock: Clock) -> HomeServer:
         config = self.default_config()
 
         # Create a custom template directory and a template inside to read
@@ -865,7 +863,7 @@ class AccountValidityTemplateDirectoryTestCase(unittest.HomeserverTestCase):
 
         return self.hs
 
-    def test_template_contents(self):
+    def test_template_contents(self) -> None:
         """Tests that the contents of the custom templates as specified in the config are
         correct.
         """
@@ -1012,7 +1010,7 @@ class AccountValidityUserDirectoryTestCase(unittest.HomeserverTestCase):
         account_validity.register_servlets,
     ]
 
-    def make_homeserver(self, reactor, clock):
+    def make_homeserver(self, reactor: MemoryReactor, clock: Clock) -> HomeServer:
         config = self.default_config()
 
         # Set accounts to expire after a week
@@ -1033,7 +1031,7 @@ class AccountValidityUserDirectoryTestCase(unittest.HomeserverTestCase):
 
         return self.hs
 
-    def test_expired_user_in_directory(self):
+    def test_expired_user_in_directory(self) -> None:
         """Test that an expired user is hidden in the user directory"""
         # Create an admin user to search the user directory
         admin_id = self.register_user("admin", "adminpassword", admin=True)

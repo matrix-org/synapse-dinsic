@@ -351,11 +351,6 @@ class RegistrationHandler:
                         shadow_banned=shadow_banned,
                     )
 
-                    requester = create_requester(user)
-                    await self.profile_handler.set_displayname(
-                        user, requester, default_display_name, by_admin=True
-                    )
-
                     # Successfully registered
                     break
                 except SynapseError:
