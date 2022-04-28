@@ -25,7 +25,7 @@ from synapse.http.servlet import (
     parse_json_object_from_request,
 )
 from synapse.http.site import SynapseRequest
-from synapse.types import JsonDict, UserID
+from synapse.types import JsonMapping, UserID
 
 from ._base import client_patterns
 
@@ -45,7 +45,7 @@ class UserDirectorySearchRestServlet(RestServlet):
         self.user_directory_handler = hs.get_user_directory_handler()
         self.http_client = hs.get_simple_http_client()
 
-    async def on_POST(self, request: SynapseRequest) -> Tuple[int, JsonDict]:
+    async def on_POST(self, request: SynapseRequest) -> Tuple[int, JsonMapping]:
         """Searches for users in directory
 
         Returns:
@@ -117,7 +117,7 @@ class SingleUserInfoServlet(RestServlet):
 
     async def on_GET(
         self, request: SynapseRequest, user_id: str
-    ) -> Tuple[int, JsonDict]:
+    ) -> Tuple[int, JsonMapping]:
         # Ensure the user is authenticated
         await self.auth.get_user_by_req(request)
 
@@ -133,7 +133,7 @@ class SingleUserInfoServlet(RestServlet):
         user_id_to_info = await self.store.get_info_for_users([user_id])
         return 200, user_id_to_info[user_id]
 
-    async def _on_federation_query(self, args: JsonDict) -> JsonDict:
+    async def _on_federation_query(self, args: JsonMapping) -> JsonMapping:
         """Called when a request for user information appears over federation
 
         Args:
@@ -171,7 +171,7 @@ class UserInfoServlet(RestServlet):
         self.store = hs.get_datastores().main
         self.transport_layer = hs.get_federation_transport_client()
 
-    async def on_POST(self, request: SynapseRequest) -> Tuple[int, JsonDict]:
+    async def on_POST(self, request: SynapseRequest) -> Tuple[int, JsonMapping]:
         # Ensure the user is authenticated
         await self.auth.get_user_by_req(request)
 
