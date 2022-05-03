@@ -199,8 +199,7 @@ class RegistrationTestCase(unittest.HomeserverTestCase):
 
     @override_config({"limit_usage_by_mau": True})
     def test_get_or_create_user_mau_not_blocked(self):
-        # Type ignore: mypy doesn't like us assigning to methods.
-        self.store.count_monthly_users = Mock(  # type: ignore[assignment]
+        self.store.count_monthly_users = Mock(
             return_value=make_awaitable(self.hs.config.server.max_mau_value - 1)
         )
         # Ensure does not throw exception
@@ -208,8 +207,7 @@ class RegistrationTestCase(unittest.HomeserverTestCase):
 
     @override_config({"limit_usage_by_mau": True})
     def test_get_or_create_user_mau_blocked(self):
-        # Type ignore: mypy doesn't like us assigning to methods.
-        self.store.get_monthly_active_count = Mock(  # type: ignore[assignment]
+        self.store.get_monthly_active_count = Mock(
             return_value=make_awaitable(self.lots_of_users)
         )
         self.get_failure(
@@ -217,8 +215,7 @@ class RegistrationTestCase(unittest.HomeserverTestCase):
             ResourceLimitError,
         )
 
-        # Type ignore: mypy doesn't like us assigning to methods.
-        self.store.get_monthly_active_count = Mock(  # type: ignore[assignment]
+        self.store.get_monthly_active_count = Mock(
             return_value=make_awaitable(self.hs.config.server.max_mau_value)
         )
         self.get_failure(
