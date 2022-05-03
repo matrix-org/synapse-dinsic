@@ -123,7 +123,7 @@ class EmailRegisterRequestTokenRestServlet(RestServlet):
             request, "email", email
         )
 
-        existing_user_id = await self.hs.get_datastore().get_user_id_by_threepid(
+        existing_user_id = await self.hs.get_datastores().main.get_user_id_by_threepid(
             "email", email
         )
 
@@ -203,7 +203,7 @@ class MsisdnRegisterRequestTokenRestServlet(RestServlet):
             request, "msisdn", msisdn
         )
 
-        existing_user_id = await self.hs.get_datastore().get_user_id_by_threepid(
+        existing_user_id = await self.hs.get_datastores().main.get_user_id_by_threepid(
             "msisdn", msisdn
         )
 
@@ -258,7 +258,7 @@ class RegistrationSubmitTokenServlet(RestServlet):
         self.auth = hs.get_auth()
         self.config = hs.config
         self.clock = hs.get_clock()
-        self.store = hs.get_datastore()
+        self.store = hs.get_datastores().main
 
         if self.config.email.threepid_behaviour_email == ThreepidBehaviour.LOCAL:
             self._failure_email_template = (
@@ -368,7 +368,7 @@ class RegistrationTokenValidityRestServlet(RestServlet):
 
     Example:
 
-        GET /_matrix/client/unstable/org.matrix.msc3231/register/org.matrix.msc3231.login.registration_token/validity?token=abcd
+        GET /_matrix/client/v1/register/m.login.registration_token/validity?token=abcd
 
         200 OK
 
@@ -378,15 +378,14 @@ class RegistrationTokenValidityRestServlet(RestServlet):
     """
 
     PATTERNS = client_patterns(
-        f"/org.matrix.msc3231/register/{LoginType.REGISTRATION_TOKEN}/validity",
-        releases=(),
-        unstable=True,
+        f"/register/{LoginType.REGISTRATION_TOKEN}/validity",
+        releases=("v1",),
     )
 
     def __init__(self, hs: "HomeServer"):
         super().__init__()
         self.hs = hs
-        self.store = hs.get_datastore()
+        self.store = hs.get_datastores().main
         self.ratelimiter = Ratelimiter(
             store=self.store,
             clock=hs.get_clock(),
@@ -416,7 +415,7 @@ class RegisterRestServlet(RestServlet):
 
         self.hs = hs
         self.auth = hs.get_auth()
-        self.store = hs.get_datastore()
+        self.store = hs.get_datastores().main
         self.auth_handler = hs.get_auth_handler()
         self.registration_handler = hs.get_registration_handler()
         self.identity_handler = hs.get_identity_handler()
@@ -930,6 +929,10 @@ def _calculate_registration_flows(
         # always let users provide both MSISDN & email
         flows.append([LoginType.MSISDN, LoginType.EMAIL_IDENTITY])
 
+    # Add a flow that doesn't require any 3pids, if the config requests it.
+    if config.registration.enable_registration_token_3pid_bypasss:
+        flows.append([LoginType.REGISTRATION_TOKEN])
+
     # Prepend m.login.terms to all flows if we're requiring consent
     if config.consent.user_consent_at_registration:
         for flow in flows:
@@ -943,7 +946,8 @@ def _calculate_registration_flows(
     # Prepend registration token to all flows if we're requiring a token
     if config.registration.registration_requires_token:
         for flow in flows:
-            flow.insert(0, LoginType.REGISTRATION_TOKEN)
+            if LoginType.REGISTRATION_TOKEN not in flow:
+                flow.insert(0, LoginType.REGISTRATION_TOKEN)
 
     return flows
 

@@ -12,12 +12,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from http import HTTPStatus
 from unittest.mock import Mock
 
 from twisted.internet import defer
+from twisted.test.proto_helpers import MemoryReactor
 
 import synapse.rest.admin
 from synapse.rest.client import account, login, room
+from synapse.server import HomeServer
+from synapse.util import Clock
 
 from tests import unittest
 
@@ -32,7 +36,7 @@ class IdentityDisabledTestCase(unittest.HomeserverTestCase):
         login.register_servlets,
     ]
 
-    def make_homeserver(self, reactor, clock):
+    def make_homeserver(self, reactor: MemoryReactor, clock: Clock) -> HomeServer:
 
         config = self.default_config()
         config["trusted_third_party_id_servers"] = ["testis"]
@@ -41,11 +45,11 @@ class IdentityDisabledTestCase(unittest.HomeserverTestCase):
 
         return self.hs
 
-    def prepare(self, reactor, clock, hs):
+    def prepare(self, reactor: MemoryReactor, clock: Clock, hs: HomeServer) -> None:
         self.user_id = self.register_user("kermit", "monkey")
         self.tok = self.login("kermit", "monkey")
 
-    def test_3pid_invite_disabled(self):
+    def test_3pid_invite_disabled(self) -> None:
         channel = self.make_request(b"POST", "/createRoom", {}, access_token=self.tok)
         self.assertEquals(channel.result["code"], b"200", channel.result)
         room_id = channel.json_body["room_id"]
@@ -59,7 +63,7 @@ class IdentityDisabledTestCase(unittest.HomeserverTestCase):
         channel = self.make_request(b"POST", request_url, data, access_token=self.tok)
         self.assertEquals(channel.result["code"], b"403", channel.result)
 
-    def test_3pid_lookup_disabled(self):
+    def test_3pid_lookup_disabled(self) -> None:
         self.hs.config.registration.enable_3pid_lookup = False
 
         url = (
@@ -69,7 +73,7 @@ class IdentityDisabledTestCase(unittest.HomeserverTestCase):
         channel = self.make_request("GET", url, access_token=self.tok)
         self.assertEqual(channel.result["code"], b"403", channel.result)
 
-    def test_3pid_bulk_lookup_disabled(self):
+    def test_3pid_bulk_lookup_disabled(self) -> None:
         url = "/_matrix/client/unstable/account/3pid/bulk_lookup"
         data = {
             "id_server": "testis",
@@ -89,7 +93,7 @@ class IdentityEnabledTestCase(unittest.HomeserverTestCase):
         login.register_servlets,
     ]
 
-    def make_homeserver(self, reactor, clock):
+    def make_homeserver(self, reactor: MemoryReactor, clock: Clock) -> HomeServer:
 
         config = self.default_config()
         config["enable_3pid_lookup"] = True
@@ -110,15 +114,15 @@ class IdentityEnabledTestCase(unittest.HomeserverTestCase):
 
         return self.hs
 
-    def prepare(self, reactor, clock, hs):
+    def prepare(self, reactor: MemoryReactor, clock: Clock, hs: HomeServer) -> None:
         self.user_id = self.register_user("kermit", "monkey")
         self.tok = self.login("kermit", "monkey")
 
-    def test_3pid_invite_enabled(self):
+    def test_3pid_invite_enabled(self) -> None:
         channel = self.make_request(
             b"POST", "/createRoom", b"{}", access_token=self.tok
         )
-        self.assertEquals(channel.result["code"], b"200", channel.result)
+        self.assertEqual(channel.code, HTTPStatus.OK, channel.result)
         room_id = channel.json_body["room_id"]
 
         data = {
@@ -136,7 +140,7 @@ class IdentityEnabledTestCase(unittest.HomeserverTestCase):
         )
         self.assertEquals(channel.result["code"], b"200", channel.result)
 
-    def test_3pid_lookup_enabled(self):
+    def test_3pid_lookup_enabled(self) -> None:
         url = (
             "/_matrix/client/unstable/account/3pid/lookup"
             "?id_server=testis&medium=email&address=foo@bar.baz"
@@ -149,7 +153,7 @@ class IdentityEnabledTestCase(unittest.HomeserverTestCase):
             {"address": "foo@bar.baz", "medium": "email"},
         )
 
-    def test_3pid_bulk_lookup_enabled(self):
+    def test_3pid_bulk_lookup_enabled(self) -> None:
         url = "/_matrix/client/unstable/account/3pid/bulk_lookup"
         data = {
             "id_server": "testis",

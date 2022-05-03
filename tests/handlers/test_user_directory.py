@@ -84,7 +84,7 @@ class UserDirectoryTestCase(unittest.HomeserverTestCase):
         return hs
 
     def prepare(self, reactor: MemoryReactor, clock: Clock, hs: HomeServer) -> None:
-        self.store = hs.get_datastore()
+        self.store = hs.get_datastores().main
         self.handler = hs.get_user_directory_handler()
         self.event_builder_factory = self.hs.get_event_builder_factory()
         self.event_creation_handler = self.hs.get_event_creation_handler()
@@ -176,7 +176,9 @@ class UserDirectoryTestCase(unittest.HomeserverTestCase):
         # Register an AS user.
         user = self.register_user("user", "pass")
         token = self.login(user, "pass")
-        as_user = self.register_appservice_user("as_user_potato", self.appservice.token)
+        as_user, _ = self.register_appservice_user(
+            "as_user_potato", self.appservice.token
+        )
 
         # Join the AS user to rooms owned by the normal user.
         public, private = self._create_rooms_and_inject_memberships(
@@ -356,6 +358,7 @@ class UserDirectoryTestCase(unittest.HomeserverTestCase):
             self.handler.handle_local_profile_change(regular_user_id, profile_info)
         )
         profile = self.get_success(self.store.get_user_in_directory(regular_user_id))
+        assert profile is not None
         self.assertTrue(profile["display_name"] == display_name)
 
     def test_handle_local_profile_change_with_deactivated_user(self) -> None:
@@ -374,6 +377,7 @@ class UserDirectoryTestCase(unittest.HomeserverTestCase):
 
         # profile is in directory
         profile = self.get_success(self.store.get_user_in_directory(r_user_id))
+        assert profile is not None
         self.assertTrue(profile["display_name"] == display_name)
 
         # deactivate user
@@ -395,7 +399,7 @@ class UserDirectoryTestCase(unittest.HomeserverTestCase):
 
     def test_handle_local_profile_change_with_appservice_user(self) -> None:
         # create user
-        as_user_id = self.register_appservice_user(
+        as_user_id, _ = self.register_appservice_user(
             "as_user_alice", self.appservice.token
         )
 
@@ -1047,7 +1051,7 @@ class TestUserDirSearchDisabled(unittest.HomeserverTestCase):
             b'{"search_term":"user2"}',
             access_token=u1_token,
         )
-        self.assertEquals(200, channel.code, channel.result)
+        self.assertEqual(200, channel.code, channel.result)
         self.assertTrue(len(channel.json_body["results"]) > 0)
 
         # Disable user directory and check search returns nothing
@@ -1058,14 +1062,14 @@ class TestUserDirSearchDisabled(unittest.HomeserverTestCase):
             b'{"search_term":"user2"}',
             access_token=u1_token,
         )
-        self.assertEquals(200, channel.code, channel.result)
+        self.assertEqual(200, channel.code, channel.result)
         self.assertTrue(len(channel.json_body["results"]) == 0)
 
 
 class UserInfoTestCase(unittest.FederatingHomeserverTestCase):
     servlets = [
         login.register_servlets,
-        synapse.rest.admin.register_servlets_for_client_rest_resource,
+        synapse.rest.admin.register_servlets,
         account_validity.register_servlets,
         user_directory.register_servlets,
         account.register_servlets,
@@ -1080,11 +1084,6 @@ class UserInfoTestCase(unittest.FederatingHomeserverTestCase):
             "period": 604800000,  # Time in ms for 1 week
         }
         return config
-
-    def prepare(self, reactor: MemoryReactor, clock: Clock, hs: HomeServer) -> None:
-        super(UserInfoTestCase, self).prepare(reactor, clock, hs)
-        self.store = hs.get_datastore()
-        self.handler = hs.get_user_directory_handler()
 
     def test_user_info(self) -> None:
         """Test /users/info for local users from the Client-Server API"""
@@ -1122,7 +1121,7 @@ class UserInfoTestCase(unittest.FederatingHomeserverTestCase):
         user_one, user_two, user_three, user_three_token = self.setup_test_users()
 
         # Request information about our local users from the perspective of a remote server
-        channel = self.make_request(
+        channel = self.make_signed_federation_request(
             "POST",
             path="/_matrix/federation/unstable/users/info",
             content={"user_ids": [user_one, user_two, user_three]},

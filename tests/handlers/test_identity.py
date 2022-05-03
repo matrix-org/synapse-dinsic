@@ -80,7 +80,7 @@ class ThreepidISRewrittenURLTestCase(unittest.HomeserverTestCase):
         """
         handler = self.hs.get_identity_handler()
         post_json_get_json = handler.blacklisting_http_client.post_json_get_json
-        store = self.hs.get_datastore()
+        store = self.hs.get_datastores().main
 
         creds = {"sid": "123", "client_secret": "some_secret"}
 
