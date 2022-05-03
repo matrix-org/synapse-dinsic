@@ -309,16 +309,6 @@ class RegistrationHandler:
                 shadow_banned=shadow_banned,
             )
 
-            if default_display_name:
-                requester = create_requester(user)
-                # FIXME: this function call is DINUM-specific code to update DINUM's
-                #  custom Sydent-powered userdir, and needed some custom changes to
-                #  ignore the ratelimiter. On mainline, we don't need to call this
-                #  function.
-                await self.profile_handler.set_displayname(
-                    user, requester, default_display_name, by_admin=True
-                )
-
             profile = await self.store.get_profileinfo(localpart)
             await self.user_directory_handler.handle_local_profile_change(
                 user_id, profile

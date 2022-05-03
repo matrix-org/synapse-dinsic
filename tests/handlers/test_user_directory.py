@@ -1069,7 +1069,7 @@ class TestUserDirSearchDisabled(unittest.HomeserverTestCase):
 class UserInfoTestCase(unittest.FederatingHomeserverTestCase):
     servlets = [
         login.register_servlets,
-        synapse.rest.admin.register_servlets_for_client_rest_resource,
+        synapse.rest.admin.register_servlets,
         account_validity.register_servlets,
         user_directory.register_servlets,
         account.register_servlets,
@@ -1084,11 +1084,6 @@ class UserInfoTestCase(unittest.FederatingHomeserverTestCase):
             "period": 604800000,  # Time in ms for 1 week
         }
         return config
-
-    def prepare(self, reactor: MemoryReactor, clock: Clock, hs: HomeServer) -> None:
-        super(UserInfoTestCase, self).prepare(reactor, clock, hs)
-        self.store = hs.get_datastores().main
-        self.handler = hs.get_user_directory_handler()
 
     def test_user_info(self) -> None:
         """Test /users/info for local users from the Client-Server API"""
@@ -1126,7 +1121,7 @@ class UserInfoTestCase(unittest.FederatingHomeserverTestCase):
         user_one, user_two, user_three, user_three_token = self.setup_test_users()
 
         # Request information about our local users from the perspective of a remote server
-        channel = self.make_request(
+        channel = self.make_signed_federation_request(
             "POST",
             path="/_matrix/federation/unstable/users/info",
             content={"user_ids": [user_one, user_two, user_three]},

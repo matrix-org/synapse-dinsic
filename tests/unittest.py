@@ -780,7 +780,7 @@ class FederatingHomeserverTestCase(HomeserverTestCase):
                         verify_key_id,
                         FetchKeyResult(
                             verify_key=verify_key,
-                            valid_until_ts=clock.time_msec() + 1000,
+                            valid_until_ts=clock.time_msec() + 2000,
                         ),
                     )
                 ],

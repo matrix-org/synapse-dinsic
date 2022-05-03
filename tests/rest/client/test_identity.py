@@ -159,11 +159,10 @@ class IdentityEnabledTestCase(unittest.HomeserverTestCase):
             "id_server": "testis",
             "threepids": [["email", "foo@bar.baz"], ["email", "john.doe@matrix.org"]],
         }
-        channel = self.make_request("POST", url, data, access_token=self.tok)
+        self.make_request("POST", url, data, access_token=self.tok)
 
         post_json = self.hs.get_simple_http_client().post_json_get_json
         post_json.assert_called_once_with(
             "https://testis/_matrix/identity/api/v1/bulk_lookup",
             {"threepids": [["email", "foo@bar.baz"], ["email", "john.doe@matrix.org"]]},
         )
-        self.assertEqual(channel.code, HTTPStatus.FORBIDDEN, channel.result)

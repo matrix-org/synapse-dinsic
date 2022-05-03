@@ -810,24 +810,6 @@ class RegisterHideProfileTestCase(unittest.HomeserverTestCase):
 
         return self.hs
 
-    def test_profile_hidden(self) -> None:
-        user_id = self.register_user("kermit", "monkey")
-
-        post_json = self.hs.get_simple_http_client().post_json_get_json
-
-        # We expect post_json_get_json to have been called twice: once with the original
-        # profile and once with the None profile resulting from the request to hide it
-        # from the user directory.
-        self.assertEqual(post_json.call_count, 2, post_json.call_args_list)
-
-        # Get the args (and not kwargs) passed to post_json.
-        args = post_json.call_args[0]
-        # Make sure the last call was attempting to replicate profiles.
-        split_uri = args[0].split("/")
-        self.assertEqual(split_uri[len(split_uri) - 1], "replicate_profiles", args[0])
-        # Make sure the last profile update was overriding the user's profile to None.
-        self.assertEqual(args[1]["batch"][user_id], None, args[1])
-
 
 class AccountValidityTemplateDirectoryTestCase(unittest.HomeserverTestCase):
     def make_homeserver(self, reactor: MemoryReactor, clock: Clock) -> HomeServer:
@@ -1030,112 +1012,6 @@ class AccountValidityUserDirectoryTestCase(unittest.HomeserverTestCase):
         )
 
         return self.hs
-
-    def test_expired_user_in_directory(self) -> None:
-        """Test that an expired user is hidden in the user directory"""
-        # Create an admin user to search the user directory
-        admin_id = self.register_user("admin", "adminpassword", admin=True)
-        admin_tok = self.login("admin", "adminpassword")
-
-        # Ensure the admin never expires
-        url = "/_synapse/admin/v1/account_validity/validity"
-        params = {
-            "user_id": admin_id,
-            "expiration_ts": 999999999999,
-            "enable_renewal_emails": False,
-        }
-        request_data = json.dumps(params)
-        channel = self.make_request(b"POST", url, request_data, access_token=admin_tok)
-        self.assertEquals(channel.result["code"], b"200", channel.result)
-
-        # Mock the homeserver's HTTP client
-        post_json = self.hs.get_simple_http_client().post_json_get_json
-
-        # Create a user
-        username = "kermit"
-        user_id = self.register_user(username, "monkey")
-        self.login(username, "monkey")
-        self.get_success(
-            self.hs.get_datastore().set_profile_displayname(username, "mr.kermit", 1)
-        )
-
-        # Check that a full profile for this user is replicated
-        self.assertIsNotNone(post_json.call_args, post_json.call_args)
-        payload = post_json.call_args[0][1]
-        batch = payload.get("batch")
-
-        self.assertIsNotNone(batch, batch)
-        self.assertEquals(len(batch), 1, batch)
-
-        replicated_user_id = list(batch.keys())[0]
-        self.assertEquals(replicated_user_id, user_id, replicated_user_id)
-
-        # There was replicated information about our user
-        # Check that it's not None
-        replicated_content = batch[user_id]
-        self.assertIsNotNone(replicated_content)
-
-        # Expire the user
-        url = "/_synapse/admin/v1/account_validity/validity"
-        params = {
-            "user_id": user_id,
-            "expiration_ts": 0,
-            "enable_renewal_emails": False,
-        }
-        request_data = json.dumps(params)
-        channel = self.make_request(b"POST", url, request_data, access_token=admin_tok)
-        self.assertEquals(channel.result["code"], b"200", channel.result)
-
-        # Wait for the background job to run which hides expired users in the directory
-        self.reactor.advance(60 * 60 * 1000)
-
-        # Check if the homeserver has replicated the user's profile to the identity server
-        self.assertIsNotNone(post_json.call_args, post_json.call_args)
-        payload = post_json.call_args[0][1]
-        batch = payload.get("batch")
-
-        self.assertIsNotNone(batch, batch)
-        self.assertEquals(len(batch), 1, batch)
-
-        replicated_user_id = list(batch.keys())[0]
-        self.assertEquals(replicated_user_id, user_id, replicated_user_id)
-
-        # There was replicated information about our user
-        # Check that it's None, signifying that the user should be removed from the user
-        # directory because they were expired
-        replicated_content = batch[user_id]
-        self.assertIsNone(replicated_content)
-
-        # Now renew the user, and check they get replicated again to the identity server
-        url = "/_synapse/admin/v1/account_validity/validity"
-        params = {
-            "user_id": user_id,
-            "expiration_ts": 99999999999,
-            "enable_renewal_emails": False,
-        }
-        request_data = json.dumps(params)
-        channel = self.make_request(b"POST", url, request_data, access_token=admin_tok)
-        self.assertEquals(channel.result["code"], b"200", channel.result)
-
-        self.pump(10)
-        self.reactor.advance(10)
-        self.pump()
-
-        # Check if the homeserver has replicated the user's profile to the identity server
-        post_json = self.hs.get_simple_http_client().post_json_get_json
-        self.assertNotEquals(post_json.call_args, None, post_json.call_args)
-        payload = post_json.call_args[0][1]
-        batch = payload.get("batch")
-        self.assertNotEquals(batch, None, batch)
-        self.assertEquals(len(batch), 1, batch)
-        replicated_user_id = list(batch.keys())[0]
-        self.assertEquals(replicated_user_id, user_id, replicated_user_id)
-
-        # There was replicated information about our user
-        # Check that it's not None, signifying that the user is back in the user
-        # directory
-        replicated_content = batch[user_id]
-        self.assertIsNotNone(replicated_content)
 
 
 class AccountValidityRenewalByEmailTestCase(unittest.HomeserverTestCase):
