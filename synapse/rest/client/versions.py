@@ -72,7 +72,7 @@ class VersionsRestServlet(RestServlet):
                     # MSC2326.
                     "org.matrix.label_based_filtering": True,
                     # Implements support for cross signing as described in MSC1756
-                    # "org.matrix.e2e_cross_signing": True,
+                    "org.matrix.e2e_cross_signing": True,
                     # Implements additional endpoints as described in MSC2432
                     "org.matrix.msc2432": True,
                     # Tchap does not currently assume this rule for r0.5.0
