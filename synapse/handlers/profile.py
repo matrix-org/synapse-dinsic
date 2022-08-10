@@ -77,8 +77,8 @@ class ProfileHandler(BaseHandler):
 
         self.http_client = hs.get_simple_http_client()
 
-        self.max_avatar_size = hs.config.max_avatar_size
-        self.allowed_avatar_mimetypes = hs.config.allowed_avatar_mimetypes
+        self.max_avatar_size = None
+        self.allowed_avatar_mimetypes = None
         self.replicate_user_profiles_to = hs.config.replicate_user_profiles_to
 
         if hs.config.run_background_tasks:
