@@ -53,7 +53,7 @@ jobs:
                   tag=${GITHUB_SHA}
                   ;;
           esac
-          echo "::set-output name=tag::$tag"
+          echo "tag=$tag" >> $GITHUB_ENV
 
       - name: Build and push all platforms
         uses: docker/build-push-action@v2
