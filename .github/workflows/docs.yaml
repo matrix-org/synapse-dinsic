@@ -54,7 +54,7 @@ jobs:
           esac
 
           # finally, set the 'branch-version' var.
-          echo "branch-version=$branch" >> $GITHUB_OUTPUT
+          echo "branch-version=$branch" >> "$GITHUB_OUTPUT"
           
       # Deploy to the target directory.
       - name: Deploy to gh pages
